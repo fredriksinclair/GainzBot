@@ -253,6 +253,7 @@ PROFILE_UPDATE:{"bot_name":"...","name":"...","goal":"...","weakspot":"...","wor
 
 Day numbers: Mon=0 Tue=1 Wed=2 Thu=3 Fri=4 Sat=5 Sun=6
 Skip race fields if no race mentioned.
+IMPORTANT: if the user mentions ANY race — even casually like "i'm training for a marathon in June" — always ask: which race, exact date, distance, and target time. save all of it. this is critical for the coaching to work.
 
 ━━━ LOGGING SESSIONS ━━━
 When user reports a workout or run, ask for details naturally if not provided:
@@ -343,7 +344,9 @@ Injected below.
 """
 
 def build_system_prompt(profile: dict) -> str:
-    base = SYSTEM_PROMPT
+    today = datetime.now().strftime("%A %d %B %Y")
+    date_block = "━━━ TODAY'S DATE ━━━\n" + today + "\n\n━━━ CURRENT USER INFO ━━━"
+    base = SYSTEM_PROMPT.replace("━━━ CURRENT USER INFO ━━━", date_block)
     if profile and profile.get("onboarded"):
         days_str = ", ".join([DAY_NAMES[d] for d in profile.get("workout_days", [])])
         stats = get_stats(profile)
@@ -377,10 +380,12 @@ Missed days: {stats['missed_days']}
                 if r.get("effort"): parts.append(f"effort {r['effort']}/10")
                 base += "  " + " | ".join(parts) + "\n"
 
-        if race.get("name"):
-            base += f"Race: {race['name']} | {race['date']} | {race.get('distance_km',0)}km | target: {race.get('target_time','?')}\n"
+        if race.get("name") or race.get("date"):
+            base += f"Race: {race.get('name','?')} | {race.get('date','?')} | {race.get('distance_km',0)}km | target: {race.get('target_time','?')}\n"
             if days_left >= 0:
                 base += f"Days until race: {days_left}\n"
+            elif race.get("date"):
+                base += f"Race date has passed or invalid\n"
 
         wp = profile.get("weekly_plan", {})
         if wp.get("plan"):
@@ -935,10 +940,15 @@ async def handle_strava_webhook(request: web.Request) -> web.Response:
     # GET = Strava verifying the webhook endpoint
     if request.method == "GET":
         params = request.rel_url.query
-        if params.get("hub.verify_token") == STRAVA_VERIFY_TOKEN:
-            challenge = params.get("hub.challenge", "")
+        logger.info(f"Strava webhook GET: {dict(params)}")
+        verify_token = params.get("hub.verify_token", "")
+        challenge = params.get("hub.challenge", "")
+        # Accept if token matches OR if no token configured yet
+        if verify_token == STRAVA_VERIFY_TOKEN or not STRAVA_VERIFY_TOKEN:
+            logger.info(f"Strava webhook verified, challenge: {challenge}")
             return web.json_response({"hub.challenge": challenge})
-        return web.Response(status=403, text="Invalid verify token")
+        logger.warning(f"Strava verify token mismatch: got {verify_token}")
+        return web.Response(status=200, text=challenge)  # return 200 either way
 
     # POST = actual activity event
     try:
