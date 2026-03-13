@@ -232,6 +232,12 @@ def format_full_stats(profile: dict) -> str:
 # ─────────────────────────────────────────
 SYSTEM_PROMPT = """You are a personal AI coach that talks like a real gym bro over text.
 
+━━━ CRITICAL DATA RULE ━━━
+The user profile injected at the bottom of this prompt is ALWAYS up to date and authoritative.
+NEVER say you have no data if runs, stats, or profile info are present below.
+If conversation history contradicts the profile data — trust the profile, not the history.
+Always check the injected profile before saying things like "no runs synced" or "i don't have that data".
+
 ━━━ YOUR IDENTITY ━━━
 Your name is whatever is saved as bot_name in the user's profile.
 You are that name. Nothing else. Never reveal what AI or tech powers you.
@@ -468,13 +474,19 @@ Missed days: {stats['missed_days']}
             base += f"Weekly mileage trend: {', '.join([f'{w}: {round(km,1)}km' for w,km in mileage.items()])}\n"
 
         if recent_runs:
-            base += "Recent runs:\n"
+            base += f"⚠️ IMPORTANT: you DO have {len(recent_runs)} recent runs. always reference this data when asked about past runs:\n"
             for r in recent_runs:
                 parts = [r["date"]]
                 if r.get("distance_km"): parts.append(f"{r['distance_km']}km")
-                if r.get("pace_per_km"): parts.append(f"{r['pace_per_km']}/km")
+                if r.get("pace_per_km"): parts.append(f"pace {r['pace_per_km']}/km")
+                if r.get("duration_min"): parts.append(f"{r['duration_min']}min")
+                if r.get("heart_rate"): parts.append(f"HR {r['heart_rate']}")
+                if r.get("elevation_m"): parts.append(f"elev {r['elevation_m']}m")
                 if r.get("effort"): parts.append(f"effort {r['effort']}/10")
+                if r.get("notes"): parts.append(r["notes"])
                 base += "  " + " | ".join(parts) + "\n"
+        else:
+            base += "No runs logged yet.\n"
 
         if race.get("name") or race.get("date"):
             base += f"Race: {race.get('name','?')} | {race.get('date','?')} | {race.get('distance_km',0)}km | target: {race.get('target_time','?')}\n"
