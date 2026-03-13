@@ -1534,11 +1534,17 @@ async def sync_strava_shoes(user_id: str, profile: dict):
                 if resp.status != 200:
                     logger.warning(f"Strava athlete fetch failed: {resp.status} — {body}")
                     return
+                # Log full athlete response keys for debugging
+                logger.info(f"Strava athlete keys: {list(body.keys())}")
                 gear_list = body.get("shoes", [])
+                logger.info(f"Raw shoes from Strava: {gear_list}")
+                # Also check if gear is under a different key
+                all_gear = body.get("gear", [])
+                logger.info(f"Raw gear from Strava: {all_gear}")
                 shoes = []
-                for g in gear_list:
-                    name = g.get("name") or g.get("nickname") or "Unnamed shoe"
-                    km = round(g.get("converted_distance", 0), 1)
+                for g in gear_list + all_gear:
+                    name = g.get("name") or g.get("nickname") or g.get("description") or "Unnamed shoe"
+                    km = round(g.get("converted_distance", g.get("distance", 0)), 1)
                     retired = g.get("retired", False)
                     shoes.append({
                         "name": name,
