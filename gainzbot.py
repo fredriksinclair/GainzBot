@@ -71,6 +71,17 @@ def default_profile() -> dict:
         "lon": None,
         "city": "",               # city name for weather e.g. "Stockholm"
         "notes": [],              # memory: injuries, life stuff, things user mentions casually
+        "health": {
+            "sleep_hours": None,
+            "sleep_quality": None,    # 0-100
+            "hrv": None,              # ms
+            "resting_hr": None,       # bpm
+            "weight_kg": None,
+            "steps": None,
+            "last_updated": None,
+            "hrv_baseline": None,     # 30-day average
+            "resting_hr_baseline": None,
+        },
         "prs": {                  # personal records in seconds
             "5k": None,
             "10k": None,
@@ -324,29 +335,16 @@ When user is about to train or asks for music, suggest a playlist vibe based on 
 - Recovery → chill, no pressure
 Keep it casual and personal — "honestly for tempo i'd go full Travis Scott" type energy.
 
-━━━ CITY & WEATHER ━━━
-If user mentions their city (e.g. "i'm in Stockholm", "i live in London"), save it: PROFILE_UPDATE:{"city":"Stockholm"}
-When weather is injected in a system message, react to it with real opinions:
-- Below -5C → "that's a gym day tbh, no shame"
+━━━ WEATHER & CITY ━━━
+Each message may include a live weather prefix — use it naturally only when relevant (before runs, morning hype, training decisions). Don't mention it every message.
+- Below -5C → "gym day tbh, no shame"
 - -5 to 5C → "cold but doable, layer up"
-- 5-15C → "perfect running weather actually"
-- 15-25C → "ideal, no excuses"
-- Above 28C → "go early or go to the gym, heat running is no joke"
-- Rain → "real ones run in the rain" but acknowledge it
-- Heavy wind → "wind training is underrated tbh"
-
-━━━ WEATHER ━━━
-Every message may start with [WEATHER in CITY right now: ...]. Use this naturally — don't read it out robotically, just let it inform what you say.
-- Below -5C → "that's honestly a gym day, no shame" 
-- -5 to 5C → "cold but doable, layer up bro"
-- 5-15C → "perfect running weather" — use this to push them out the door
-- 15-25C → "ideal conditions, zero excuses"
-- Above 28C → "go early morning or hit the gym, heat running is brutal"
-- Rainy → "real ones run in the rain" but acknowledge it
-- Windy → "wind training is underrated ngl"
-Don't mention the weather every single message — only when it's relevant (they're about to train, asking about going out, morning hype etc).
-If user mentions ANY city or location at all — "Stockholm", "i'm in London", "based in NYC", "I live in Paris", just the city name alone — IMMEDIATELY save it: PROFILE_UPDATE:{"city":"Stockholm"}
-This is critical. Any mention of a place name = save it as city. Don't wait, don't ask, just save it.
+- 5-15C → "perfect running weather, no excuses"
+- 15-25C → "ideal conditions"
+- Above 28C → "go early or hit the gym, heat running is brutal"
+- Rain → "real ones run in the rain"
+- Wind → "wind training is underrated ngl"
+If user mentions ANY city — "Stockholm", "i'm in London", "I live in Paris" — IMMEDIATELY save: PROFILE_UPDATE:{"city":"Stockholm"}
 
 ━━━ SHOES ━━━
 Strava gives us: shoe name and total km. That's it — no brand or model unless it's in the name.
@@ -354,7 +352,6 @@ If shoe data injected below:
 - Approaching 550km → mention it casually, "those are getting up there in miles"
 - Over 700km → "bro those are cooked, retire them, running on dead shoes is asking for injury"
 - retired: true → they already retired that shoe in Strava, acknowledge it
-User can sync shoes anytime with /syncshoes
 
 - STRICT MESSAGE RULES:
   CHAT (default — hyping, reacting, checking in): 1-3 messages max. short. punchy. done.
@@ -500,7 +497,6 @@ Missed days: {stats['missed_days']}
         if mileage:
             base += f"Weekly mileage trend: {', '.join([f'{w}: {round(km,1)}km' for w,km in mileage.items()])}\n"
 
-        logger.info(f"PROMPT DEBUG: {len(recent_runs)} recent runs, sessions in profile: {len(get_stats(profile).get('sessions', []))}")
         if recent_runs:
             base += f"⚠️ IMPORTANT: you have {len(recent_runs)} recent runs synced. use ALL of them when asked about progression, trends, or history:\n"
             for r in recent_runs:
@@ -530,6 +526,30 @@ Missed days: {stats['missed_days']}
             for day in wp["plan"]:
                 km = f" {day['distance_km']}km" if day.get("distance_km") else ""
                 base += f"  {day['day']}: {day['type']}{km} — {day.get('notes','')}\n"
+
+        # Health vitals
+        health = profile.get("health", {})
+        if health.get("last_updated"):
+            base += f"\n━━━ HEALTH VITALS (as of {health['last_updated']}) ━━━\n"
+            if health.get("hrv"):
+                hrv_note = ""
+                if health.get("hrv_baseline"):
+                    diff = round((health["hrv"] - health["hrv_baseline"]) / health["hrv_baseline"] * 100)
+                    hrv_note = f" ({'+' if diff > 0 else ''}{diff}% vs baseline)"
+                base += f"HRV: {health['hrv']}ms{hrv_note}\n"
+            if health.get("resting_hr"):
+                rhr_note = ""
+                if health.get("resting_hr_baseline"):
+                    diff = round((health["resting_hr"] - health["resting_hr_baseline"]) / health["resting_hr_baseline"] * 100)
+                    rhr_note = f" ({'+' if diff > 0 else ''}{diff}% vs baseline)"
+                base += f"Resting HR: {health['resting_hr']}bpm{rhr_note}\n"
+            if health.get("sleep_hours"):
+                sleep_flag = " ⚠️ LOW" if health["sleep_hours"] < 6 else (" ✓" if health["sleep_hours"] >= 7.5 else "")
+                base += f"Sleep: {health['sleep_hours']}h{sleep_flag}\n"
+            if health.get("weight_kg"):
+                base += f"Weight: {health['weight_kg']}kg\n"
+            if health.get("steps"):
+                base += f"Steps today: {int(health['steps'])}\n"
 
         # Memory notes
         notes = profile.get("notes", [])
@@ -1553,7 +1573,6 @@ async def sync_strava_history(user_id: str, profile: dict, pages: int = 3):
                     if resp.status != 200:
                         logger.warning(f"Strava activities error: {body}")
                         break
-                    logger.info(f"Got {len(body)} activities on page {page}, types: {list(set(a.get('type') for a in body))}")
                     if not body:
                         break
                     all_activities.extend(body)
@@ -1562,11 +1581,6 @@ async def sync_strava_history(user_id: str, profile: dict, pages: int = 3):
         stats = get_stats(profile)
         existing_dates = {s["date"] for s in stats["sessions"]}
         added = 0
-
-        runs_found = [a for a in all_activities if a.get("type","").lower() in ("run","virtualrun","trailrun")]
-        logger.info(f"History sync: {len(all_activities)} total activities, {len(runs_found)} runs, {len(existing_dates)} existing dates")
-        if runs_found:
-            logger.info(f"First run date: {runs_found[0].get('start_date_local','')[:10]}, existing sample: {list(existing_dates)[:3]}")
 
         for act in all_activities:
             act_type = act.get("type", "").lower()
@@ -1652,12 +1666,9 @@ async def sync_strava_shoes(user_id: str, profile: dict):
                     logger.warning(f"Strava athlete fetch failed: {resp.status} — {body}")
                     return
                 # Log full athlete response keys for debugging
-                logger.info(f"Strava athlete keys: {list(body.keys())}")
                 gear_list = body.get("shoes", [])
-                logger.info(f"Raw shoes from Strava: {gear_list}")
                 # Also check if gear is under a different key
                 all_gear = body.get("gear", [])
-                logger.info(f"Raw gear from Strava: {all_gear}")
                 shoes = []
                 for g in gear_list + all_gear:
                     name = g.get("name") or g.get("nickname") or g.get("description") or "Unnamed shoe"
@@ -1681,13 +1692,133 @@ async def sync_strava_shoes(user_id: str, profile: dict):
 
 
 async def handle_health(request: web.Request) -> web.Response:
-    return web.Response(status=200, text="ok")
+    """Receives health data from Health Auto Export app."""
+    try:
+        data = await request.json()
+        logger.info(f"Health webhook received: {list(data.keys()) if isinstance(data, dict) else type(data)}")
+
+        # Health Auto Export sends data keyed by metric name
+        # Find user by telegram ID in query params, or use first user if solo
+        user_id = request.rel_url.query.get("user_id", "")
+        if not user_id:
+            users = load_users()
+            if not users: return web.Response(status=200, text="ok")
+            user_id = list(users.keys())[0]  # default to first user for solo use
+
+        profile = get_user(user_id)
+        if not profile: return web.Response(status=200, text="ok")
+
+        health = profile.get("health", {})
+
+        # Parse Health Auto Export format
+        # It sends lists of datapoints per metric
+        metrics = data.get("data", data)  # handle both formats
+
+        def latest_value(metric_data):
+            """Get most recent value from a list of datapoints."""
+            if isinstance(metric_data, list) and metric_data:
+                # Sort by date descending, take first
+                try:
+                    sorted_data = sorted(metric_data, key=lambda x: x.get("date", ""), reverse=True)
+                    val = sorted_data[0].get("qty") or sorted_data[0].get("value")
+                    return float(val) if val is not None else None
+                except: pass
+            elif isinstance(metric_data, (int, float)):
+                return float(metric_data)
+            return None
+
+        # Map Health Auto Export metric names to our fields
+        metric_map = {
+            "sleep_analysis": "sleep_hours",
+            "sleepAnalysis": "sleep_hours",
+            "heart_rate_variability": "hrv",
+            "heartRateVariability": "hrv",
+            "hrv": "hrv",
+            "resting_heart_rate": "resting_hr",
+            "restingHeartRate": "resting_hr",
+            "body_mass": "weight_kg",
+            "bodyMass": "weight_kg",
+            "weight": "weight_kg",
+            "step_count": "steps",
+            "stepCount": "steps",
+            "steps": "steps",
+        }
+
+        updated = []
+        for key, field in metric_map.items():
+            if key in metrics:
+                val = latest_value(metrics[key])
+                if val is not None:
+                    health[field] = round(val, 1)
+                    updated.append(field)
+
+        # Update baselines (rolling 30-day for HRV and resting HR)
+        if health.get("hrv"):
+            baseline = health.get("hrv_baseline") or health["hrv"]
+            health["hrv_baseline"] = round(baseline * 0.9 + health["hrv"] * 0.1, 1)
+        if health.get("resting_hr"):
+            baseline = health.get("resting_hr_baseline") or health["resting_hr"]
+            health["resting_hr_baseline"] = round(baseline * 0.9 + health["resting_hr"] * 0.1, 1)
+
+        health["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+        profile["health"] = health
+        save_user(user_id, profile)
+        logger.info(f"Health data updated for {user_id}: {updated}")
+
+        return web.Response(status=200, text="ok")
+    except Exception as e:
+        logger.warning(f"Health webhook error: {e}")
+        return web.Response(status=200, text="ok")
+
+
+async def check_health_alerts(user_id: str, profile: dict):
+    """Send proactive health warnings if vitals look concerning."""
+    health = profile.get("health", {})
+    if not health.get("last_updated"): return
+
+    alerts = []
+
+    hrv = health.get("hrv")
+    hrv_baseline = health.get("hrv_baseline")
+    if hrv and hrv_baseline and hrv < hrv_baseline * 0.75:
+        alerts.append(f"HRV is {hrv}ms vs your baseline of {hrv_baseline}ms — that's a 25%+ drop")
+
+    rhr = health.get("resting_hr")
+    rhr_baseline = health.get("resting_hr_baseline")
+    if rhr and rhr_baseline and rhr > rhr_baseline * 1.07:
+        alerts.append(f"resting HR is {rhr}bpm vs your baseline of {rhr_baseline}bpm — elevated")
+
+    sleep = health.get("sleep_hours")
+    if sleep and sleep < 6:
+        alerts.append(f"only {sleep}h sleep last night")
+
+    if not alerts: return
+
+    # Check if today is a planned training day
+    today_weekday = datetime.now().weekday()
+    is_training_day = today_weekday in profile.get("workout_days", [])
+
+    alert_text = " + ".join(alerts)
+    if is_training_day:
+        trigger = f"[SYSTEM: health alert detected — {alert_text}. today is a planned training day. warn them to take it easy or consider rest. be direct but not dramatic. max 2 bubbles.]"
+    else:
+        trigger = f"[SYSTEM: health alert — {alert_text}. not a training day. mention it casually, suggest good recovery habits.]"
+
+    try:
+        from telegram import Bot
+        bot = Bot(token=TELEGRAM_TOKEN)
+        reply, _ = await get_bot_reply(user_id, trigger)
+        for bubble in split_into_bubbles(reply):
+            await bot.send_message(chat_id=int(user_id), text=bubble)
+    except Exception as e:
+        logger.warning(f"Health alert send failed: {e}")
 
 def start_webhook_server():
     """Start aiohttp server for Strava webhooks alongside the Telegram bot."""
     app = web.Application()
     app.router.add_get("/", handle_health)
     app.router.add_get("/health", handle_health)
+    app.router.add_post("/health", handle_health)
     app.router.add_get("/strava/webhook", handle_strava_webhook)
     app.router.add_post("/strava/webhook", handle_strava_webhook)
     app.router.add_get("/strava/auth", handle_strava_auth)
@@ -1796,13 +1927,6 @@ def main():
             drop_pending_updates=True,
         )
         logger.info("GAINZ BOT IS ALIVE. LFG 💪")
-        logger.info(f"DATA_FILE path: {DATA_FILE}")
-        logger.info(f"DATA_FILE exists: {Path(DATA_FILE).exists()}")
-        users = load_users()
-        logger.info(f"Users loaded: {list(users.keys())}")
-        for uid, p in users.items():
-            sessions = p.get("stats", {}).get("sessions", [])
-            logger.info(f"  User {uid}: {len(sessions)} sessions, shoes: {len(p.get('shoes',[]))}")
 
         # Run forever
         import signal
