@@ -1646,7 +1646,11 @@ async def strava_history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
     profile["stats"]["weekly_mileage"] = {}
     save_user(user_id, profile)
     added = await sync_strava_history(user_id, profile, pages=3)
-    await update.message.reply_text(f"done — imported {added} runs from Strava")
+    # Clear conversation history so Claude reads fresh profile data
+    profile = get_user(user_id) or default_profile()
+    profile["conversation"] = []
+    save_user(user_id, profile)
+    await update.message.reply_text(f"done — imported {added} runs. ask me about your runs now!")
 
 
 async def strava_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
