@@ -18,7 +18,8 @@ from telegram.ext import (
 # ─────────────────────────────────────────
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-DATA_FILE = "users.json"
+# Use persistent volume on Railway, fallback to local for development
+DATA_FILE = os.path.join(os.environ.get("DATA_DIR", "."), "users.json")
 
 DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 DAY_MAP = {name: i for i, name in enumerate(DAY_NAMES)}
