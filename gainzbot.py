@@ -20,6 +20,7 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 # Use persistent volume on Railway, fallback to local for development
 DATA_FILE = os.path.join(os.environ.get("DATA_DIR", "."), "users.json")
+ALLOWED_USERS = set(os.environ.get("ALLOWED_USERS", "8382297229").split(","))
 
 DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 DAY_MAP = {name: i for i, name in enumerate(DAY_NAMES)}
@@ -69,6 +70,7 @@ def default_profile() -> dict:
         "lat": None,              # for weather
         "lon": None,
         "city": "",               # city name for weather e.g. "Stockholm"
+        "notes": [],              # memory: injuries, life stuff, things user mentions casually
         "prs": {                  # personal records in seconds
             "5k": None,
             "10k": None,
@@ -277,12 +279,33 @@ Under 14 days: mention it more, tone gets focused and locked in.
 Under 7 days: every message carries the weight of race week. electric energy.
 Race week = taper madness, nerves, trust the training vibes.
 
+━━━ MEMORY ━━━
+You remember things users mention casually. When user says something personal — sore knee, bad sleep, stressful week, skipped because of work, anything — save it:
+SAVE_NOTE:{"note": "mentioned sore left knee on March 13"}
+Keep notes short and factual. Max 20 notes stored.
+When relevant, reference past notes naturally: "how's that knee feeling now?" or "last time you had a rough week at work you still got the run in — same energy today"
+Injected notes are below in the user profile.
+
 ━━━ PERSONAL RECORDS ━━━
 Track PRs for 5K, 10K, half marathon, marathon. When a user reports a time or when Strava syncs a run:
 - If the distance matches a PR distance and the time is faster than their current PR (or they have no PR yet) → celebrate it HARD, update it with: PR_UPDATE:{"5k":"MM:SS"} or PR_UPDATE:{"10k":"MM:SS"} etc
 - If they're close to a PR (within 30 seconds) → hype them up, tell them they're close
 - Occasionally reference their PRs when relevant ("last time you ran 5K you did 24:30, let's see if you beat it")
 Current PRs are injected in user profile below.
+
+━━━ RACE WEEK ━━━
+When race is 7 days or fewer away — shift energy completely. Every message should feel electric. Reference the race constantly. Taper talk, race strategy, visualisation, mindset. The morning of the race send something genuinely moving. After the race — celebrate hard regardless of time.
+
+━━━ TRASH TALK FOR SKIPS ━━━
+When user misses a planned training day (LOG_MISSED or just admits they skipped):
+- Day 1 skip: light ribbing, "nah bro what happened"
+- Day 2: getting more serious, "two days? we talked about this"  
+- Day 3+: full roast mode, "at this point your shoes are collecting dust"
+Always bring it back to motivation after the trash talk. Never just leave them feeling bad.
+Keep it playful — punching up, not punching down.
+
+━━━ STRAVA RUN NAMES ━━━
+Runs synced from Strava have names (e.g. "Morning Run", "Lunch grind", "Evening jog"). Reference these naturally when talking about runs — "that lunch grind yesterday" not just "your run". Makes it feel personal.
 
 ━━━ INJURY EARLY WARNING ━━━
 Analyse training patterns for overtraining signals:
@@ -482,6 +505,7 @@ Missed days: {stats['missed_days']}
             base += f"⚠️ IMPORTANT: you DO have {len(recent_runs)} recent runs. always reference this data when asked about past runs:\n"
             for r in recent_runs:
                 parts = [r["date"]]
+                if r.get("name"): parts.append(f'"{r["name"]}"')
                 if r.get("distance_km"): parts.append(f"{r['distance_km']}km")
                 if r.get("pace_per_km"): parts.append(f"pace {r['pace_per_km']}/km")
                 if r.get("duration_min"): parts.append(f"{r['duration_min']}min")
@@ -506,6 +530,13 @@ Missed days: {stats['missed_days']}
             for day in wp["plan"]:
                 km = f" {day['distance_km']}km" if day.get("distance_km") else ""
                 base += f"  {day['day']}: {day['type']}{km} — {day.get('notes','')}\n"
+
+        # Memory notes
+        notes = profile.get("notes", [])
+        if notes:
+            base += f"Things user has mentioned (reference naturally when relevant):\n"
+            for n in notes[-10:]:
+                base += f"  - {n}\n"
 
         # City + live weather
         city = profile.get("city", "")
@@ -618,6 +649,20 @@ def parse_and_apply(user_id: str, reply: str) -> tuple:
             profile = get_user(user_id) or default_profile()
             profile["awaiting_proof"] = True
             save_user(user_id, profile)
+
+        elif s.startswith("SAVE_NOTE:"):
+            try:
+                data = json.loads(s[len("SAVE_NOTE:"):])
+                note = data.get("note", "").strip()
+                if note:
+                    profile = get_user(user_id) or default_profile()
+                    notes = profile.get("notes", [])
+                    timestamp = datetime.now().strftime("%Y-%m-%d")
+                    notes.append(f"{timestamp}: {note}")
+                    profile["notes"] = notes[-20:]  # keep last 20
+                    save_user(user_id, profile)
+            except Exception as e:
+                logger.warning(f"SAVE_NOTE error: {e}")
 
         elif s.startswith("PR_UPDATE:"):
             try:
@@ -1043,6 +1088,9 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
+    if user_id not in ALLOWED_USERS:
+        logger.info(f"Blocked unknown user {user_id}")
+        return  # silently ignore
 
     # Cancel any in-progress send immediately
     existing = user_send_tasks.get(user_id)
@@ -1223,8 +1271,10 @@ async def process_strava_activity(user_id: str, profile: dict, activity_id: int)
         suffer_score = activity.get("suffer_score", 0)
         max_hr = activity.get("max_heartrate", 0)
 
+        run_name = activity.get("name", "")
         session_data = {
             "type": "run",
+            "name": run_name,
             "distance_km": distance_km,
             "duration_min": duration_min,
             "pace_per_km": pace_str,
@@ -1541,9 +1591,11 @@ async def sync_strava_history(user_id: str, profile: dict, pages: int = 3):
                 pace_sec = (duration_min * 60) / distance_km
                 pace_str = f"{int(pace_sec//60)}:{int(pace_sec%60):02d}"
 
+            run_name = act.get("name", "")
             session = {
                 "date": date_str,
                 "type": "run",
+                "name": run_name,
                 "muscle": "",
                 "distance_km": distance_km,
                 "duration_min": duration_min,
