@@ -1200,7 +1200,7 @@ async def process_strava_activity(user_id: str, profile: dict, activity_id: int)
 
         # Parse activity data
         distance_km = round(activity.get("distance", 0) / 1000, 2)
-        duration_min = round(activity.get("moving_time", 0) / 60, 1)
+        duration_min = round(activity.get("elapsed_time", activity.get("moving_time", 0)) / 60, 1)
         avg_hr = activity.get("average_heartrate", 0)
         name = activity.get("name", "run")
 
@@ -1524,7 +1524,7 @@ async def sync_strava_history(user_id: str, profile: dict, pages: int = 3):
                 continue
 
             distance_km = round(act.get("distance", 0) / 1000, 2)
-            duration_min = round(act.get("moving_time", 0) / 60, 1)
+            duration_min = round(act.get("elapsed_time", act.get("moving_time", 0)) / 60, 1)
             avg_hr = act.get("average_heartrate", 0)
             max_hr = act.get("max_heartrate", 0)
             cadence = act.get("average_cadence", 0)
