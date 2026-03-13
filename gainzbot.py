@@ -888,7 +888,19 @@ async def restore_all_jobs(app: Application):
         name="ghost_checker",
         data={},
     )
-    logger.info("Restored all jobs + weekly summary + ghost checker.")
+    app.job_queue.run_daily(
+        daily_shoe_sync,
+        time=time(hour=3, minute=0),
+        name="daily_shoe_sync",
+        data={},
+    )
+    app.job_queue.run_daily(
+        daily_run_sync,
+        time=time(hour=3, minute=30),
+        name="daily_run_sync",
+        data={},
+    )
+    logger.info("Restored all jobs + weekly summary + ghost checker + shoe sync + run sync.")
 
 
 # ─────────────────────────────────────────
@@ -1308,17 +1320,22 @@ async def handle_strava_auth(request: web.Request) -> web.Response:
 
     logger.info(f"Strava linked for user {telegram_user_id}")
 
-    # Sync shoes + history immediately after linking
-    asyncio.create_task(sync_strava_shoes(telegram_user_id, profile))
+    # Sync shoes + history immediately — await shoes so they're ready before we notify
+    await sync_strava_shoes(telegram_user_id, profile)
     asyncio.create_task(sync_strava_history(telegram_user_id, profile))
+
+    # Reload profile so notification includes fresh shoe + run data
+    profile = get_user(telegram_user_id) or profile
 
     # Notify user in Telegram
     try:
         from telegram import Bot
         bot = Bot(token=TELEGRAM_TOKEN)
+        shoes = profile.get("shoes", [])
+        shoe_info = ", ".join([f"{s['name']} ({s['km']}km)" for s in shoes]) if shoes else "no shoes found"
         reply, _ = await get_bot_reply(
             telegram_user_id,
-            "[SYSTEM: user just linked their Strava account. celebrate it, tell them their runs will now sync automatically. short and hype.]"
+            f"[SYSTEM: user just linked Strava. shoes synced: {shoe_info}. runs will auto-sync going forward. celebrate it, mention their shoes if found, keep it short and hype.]"
         )
         await send_with_typing(bot, int(telegram_user_id), reply, user_id=telegram_user_id)
     except Exception as e:
@@ -1408,6 +1425,24 @@ async def get_weather(lat: float, lon: float) -> str:
 # ─────────────────────────────────────────
 #  GHOST CHECKER — runs daily
 # ─────────────────────────────────────────
+async def daily_shoe_sync(context: ContextTypes.DEFAULT_TYPE):
+    """Sync shoes for all Strava-connected users every night."""
+    users = load_users()
+    for user_id, profile in users.items():
+        if profile.get("strava_access_token"):
+            await sync_strava_shoes(user_id, profile)
+
+
+async def daily_run_sync(context: ContextTypes.DEFAULT_TYPE):
+    """Sync recent runs for all Strava-connected users every night."""
+    users = load_users()
+    for user_id, profile in users.items():
+        if profile.get("strava_access_token"):
+            added = await sync_strava_history(user_id, profile, pages=1)  # last 30 runs
+            if added:
+                logger.info(f"Daily sync: added {added} new runs for {user_id}")
+
+
 async def check_ghosts(context: ContextTypes.DEFAULT_TYPE):
     """Check for inactive users and send increasingly desperate messages."""
     users = load_users()
@@ -1451,16 +1486,19 @@ async def sync_strava_history(user_id: str, profile: dict, pages: int = 3):
             for page in range(1, pages + 1):
                 url = (
                     f"https://www.strava.com/api/v3/athlete/activities"
-                    f"?per_page=30&page={page}&activity_type=Run"
+                    f"?per_page=30&page={page}"
                 )
                 headers = {"Authorization": f"Bearer {access_token}"}
                 async with session.get(url, headers=headers) as resp:
+                    body = await resp.json()
+                    logger.info(f"Strava activities page {page} status: {resp.status}")
                     if resp.status != 200:
+                        logger.warning(f"Strava activities error: {body}")
                         break
-                    activities = await resp.json()
-                    if not activities:
+                    logger.info(f"Got {len(body)} activities on page {page}, types: {list(set(a.get('type') for a in body))}")
+                    if not body:
                         break
-                    all_activities.extend(activities)
+                    all_activities.extend(body)
 
         profile = get_user(user_id) or profile
         stats = get_stats(profile)
