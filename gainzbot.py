@@ -1630,7 +1630,7 @@ async def strava_connect(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"?client_id={STRAVA_CLIENT_ID}"
         f"&redirect_uri={base_url}/strava/auth"
         f"&response_type=code"
-        f"&scope=activity:read_all"
+        f"&scope=read_all,activity:read_all,profile:read_all"
         f"&state={user_id}"
         f"&approval_prompt=auto"
     )
@@ -1672,7 +1672,11 @@ def main():
         logger.info(f"Strava webhook server running on port {port}")
         await tg_app.initialize()
         await tg_app.start()
-        await tg_app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+        # Drop any updates queued while old instance was running
+        await tg_app.updater.start_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True,
+        )
         logger.info("GAINZ BOT IS ALIVE. LFG 💪")
         # Run forever
         import signal
