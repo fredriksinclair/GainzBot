@@ -322,7 +322,8 @@ Every message may start with [WEATHER in CITY right now: ...]. Use this naturall
 - Rainy → "real ones run in the rain" but acknowledge it
 - Windy → "wind training is underrated ngl"
 Don't mention the weather every single message — only when it's relevant (they're about to train, asking about going out, morning hype etc).
-If user says their city (e.g. "i'm in Stockholm", "based in London") → save it: PROFILE_UPDATE:{"city":"Stockholm"}
+If user mentions ANY city or location at all — "Stockholm", "i'm in London", "based in NYC", "I live in Paris", just the city name alone — IMMEDIATELY save it: PROFILE_UPDATE:{"city":"Stockholm"}
+This is critical. Any mention of a place name = save it as city. Don't wait, don't ask, just save it.
 
 ━━━ SHOES ━━━
 Strava gives us: shoe name and total km. That's it — no brand or model unless it's in the name.
@@ -972,14 +973,18 @@ async def process_user_messages(user_id: str, app):
                 if any(s in text.lower() for s in no_proof):
                     text = "PROOF_RESULT:NO_PROOF"
 
-            # Detect city from message directly as backup
+            # Detect city from message directly
             import re as _re
-            city_match = _re.search(r"(?:i(?:'m| am) (?:in|based in|from)|i live in|based in|from|living in) ([A-Z][a-z]+(?:\s[A-Z][a-z]+)?)", text, _re.IGNORECASE)
-            if city_match and not profile.get('city'):
-                detected_city = city_match.group(1).strip()
-                profile['city'] = detected_city
-                save_user(user_id, profile)
-                logger.info(f'Auto-detected city: {detected_city} for {user_id}')
+            city_match = _re.search(
+                r"(?:i(?:'m| am) (?:in|based in|from)|i live in|based in|from|living in|i(?:'m| am) from|city is|located in|i(?:'m| am) at)\s+([A-Z][a-zA-Z]+(?:\s[A-Z][a-zA-Z]+)?)",
+                text, _re.IGNORECASE
+            )
+            if city_match:
+                detected_city = city_match.group(1).strip().title()
+                if detected_city != profile.get('city'):
+                    profile['city'] = detected_city
+                    save_user(user_id, profile)
+                    logger.info(f'Auto-detected city: {detected_city} for {user_id}')
 
             # Inject live weather as context prefix — invisible to user
             city = profile.get("city", "")
