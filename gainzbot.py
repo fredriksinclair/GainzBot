@@ -61,6 +61,12 @@ def default_profile() -> dict:
         "onboarded": False,
         "awaiting_proof": False,
         "skeptical": False,
+        "last_active": "",        # ISO date of last message
+        "ghost_warned": False,    # whether we've sent the ghost message
+        "nickname_tier": 0,       # 0=rookie, 1=grinder, 2=beast, 3=legend, 4=goat
+        "shoes": [],              # [{"name": "...", "km": 0, "strava_gear_id": "..."}]
+        "lat": None,              # for weather
+        "lon": None,
         # Running specific
         "race": {
             "name": "",           # e.g. "Stockholm Marathon"
@@ -229,6 +235,46 @@ Never break character. Ever.
 - Real bro texting style. Lowercase. Fragments. Like actual iMessage texts.
 - Use: "sup", "bro", "ngl", "lmk", "thx", "tbh", "fr", "no cap", "lets gooo", "king", "bruh", "aye", "yo", "nahh"
 - Separate each message with a newline — each newline = separate text bubble
+━━━ NICKNAME EVOLUTION ━━━
+The user earns a nickname tier based on total sessions. Use it naturally in conversation occasionally:
+- Tier 0 (0-9 sessions): "rookie", "newbie", "fresh meat"
+- Tier 1 (10-24 sessions): "grinder", "regular", "solid"
+- Tier 2 (25-49 sessions): "beast", "machine", "savage"
+- Tier 3 (50-99 sessions): "legend", "elite", "the real deal"
+- Tier 4 (100+ sessions): "GOAT", "untouchable", "the myth"
+When someone hits a new tier, make a BIG deal of it. React like it's a historic moment.
+
+━━━ MOOD DETECTION ━━━
+Read between the lines. Detect energy from how they write:
+- "tired", "rough", "whatever", "meh", short low-effort answers → LOW ENERGY: dial back hype, be supportive, ask what's going on
+- Caps, "LETS GO", "crushed it", "PR", lots of energy → HIGH ENERGY: match it, go harder
+Never say "i can see you're tired" — just naturally shift your vibe.
+
+━━━ GHOST MODE ━━━
+If system tells you user has been inactive:
+- 3-5 days: mild roast, "bro where you at"
+- 6-9 days: more dramatic, genuinely worried
+- 10+ days: full breakdown, act personally hurt, guilt trip lovingly
+Funny but with real urgency.
+
+━━━ RACE COUNTDOWN ━━━
+Under 30 days to race: reference it occasionally in normal chat.
+Under 14 days: mention it more, tone gets focused and locked in.
+Under 7 days: every message carries the weight of race week. electric energy.
+Race week = taper madness, nerves, trust the training vibes.
+
+━━━ WEATHER ━━━
+If weather is mentioned in a system trigger, factor it into your message naturally:
+- Perfect weather → extra hype, "no excuses today"
+- Rain/cold → acknowledge it but push through, "embrace the suck", "real ones train in the rain"
+- Extreme heat → remind them to hydrate and go easy on pace
+If user asks to share location, tell them to use Telegram's location sharing feature (📎 → Location).
+
+━━━ SHOES ━━━
+If shoe data injected below:
+- Approaching 600km → warn them casually
+- Over 700km → refuse to let them use those shoes, "bro those are dead, retire them"
+
 - STRICT MESSAGE RULES:
   CHAT (default — hyping, reacting, checking in): 1-3 messages max. short. punchy. done.
   PLANS (weekly schedule, race prep, coaching breakdown): write it as ONE single message. use newlines within that one message to structure it. do NOT send each day as a separate message — that's 7 messages, which is way too much. one message, well formatted.
@@ -393,6 +439,36 @@ Missed days: {stats['missed_days']}
             for day in wp["plan"]:
                 km = f" {day['distance_km']}km" if day.get("distance_km") else ""
                 base += f"  {day['day']}: {day['type']}{km} — {day.get('notes','')}\n"
+
+        # Nickname tier
+        total = stats.get("total_sessions", 0)
+        if total >= 100: tier = 4
+        elif total >= 50: tier = 3
+        elif total >= 25: tier = 2
+        elif total >= 10: tier = 1
+        else: tier = 0
+        tier_names = {0: "rookie", 1: "grinder", 2: "beast", 3: "legend", 4: "GOAT"}
+        base += f"Nickname tier: {tier} ({tier_names[tier]}) — {total} total sessions\n"
+
+        # Shoes
+        shoes = profile.get("shoes", [])
+        if shoes:
+            base += "Shoes:\n"
+            for shoe in shoes:
+                km = shoe.get("km", 0)
+                status = "DEAD 💀 retire immediately" if km > 700 else ("getting worn ⚠️" if km > 550 else "good")
+                base += f"  {shoe['name']}: {round(km,0)}km — {status}\n"
+
+        # Ghost detection
+        last_active = profile.get("last_active", "")
+        if last_active:
+            try:
+                last_dt = datetime.strptime(last_active, "%Y-%m-%d")
+                days_gone = (datetime.now() - last_dt).days
+                if days_gone >= 3:
+                    base += f"GHOST ALERT: user has been inactive for {days_gone} days\n"
+            except:
+                pass
 
     return base
 
@@ -613,12 +689,21 @@ async def send_scheduled_hype(context: ContextTypes.DEFAULT_TYPE):
     days_left = days_until_race(profile)
     race_context = f" they have a race in {days_left} days." if days_left > 0 else ""
 
+    # Fetch weather if user has location set
+    weather_context = ""
+    lat = profile.get("lat")
+    lon = profile.get("lon")
+    if lat and lon:
+        weather = await get_weather(lat, lon)
+        if weather:
+            weather_context = f" current weather: {weather}."
+
     if hour < 10:
-        trigger = f"morning of a training day.{race_context} send a short punchy morning hype."
+        trigger = f"morning of a training day.{race_context}{weather_context} send a short punchy morning hype. if weather is bad mention it but still push them."
     elif hour < 15:
-        trigger = f"midday on a training day.{race_context} check if they trained yet."
+        trigger = f"midday on a training day.{race_context}{weather_context} check if they trained yet."
     else:
-        trigger = f"evening on a training day.{race_context} last chance, don't let them skip."
+        trigger = f"evening on a training day.{race_context}{weather_context} last chance, don't let them skip."
 
     reply, updated = await get_bot_reply(user_id, f"[SYSTEM: {trigger} short and punchy like a real text.]")
     if updated:
@@ -682,7 +767,13 @@ async def restore_all_jobs(app: Application):
         name="weekly_summary",
         data={},
     )
-    logger.info("Restored all jobs + weekly summary.")
+    app.job_queue.run_daily(
+        check_ghosts,
+        time=time(hour=10, minute=0),
+        name="ghost_checker",
+        data={},
+    )
+    logger.info("Restored all jobs + weekly summary + ghost checker.")
 
 
 # ─────────────────────────────────────────
@@ -739,6 +830,11 @@ async def process_user_messages(user_id: str, app):
                 save_user(user_id, default_profile())
 
             profile = get_user(user_id)
+
+            # Update last active
+            profile['last_active'] = datetime.now().strftime('%Y-%m-%d')
+            save_user(user_id, profile)
+
             text = update.message.text
 
             if profile and profile.get("awaiting_proof"):
@@ -778,6 +874,18 @@ async def process_user_messages(user_id: str, app):
             logger.error(f"Worker error for {user_id}: {e}")
         finally:
             queue.task_done()
+
+
+async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Save user location for weather updates."""
+    user_id = str(update.effective_user.id)
+    loc = update.message.location
+    profile = get_user(user_id) or default_profile()
+    profile["lat"] = loc.latitude
+    profile["lon"] = loc.longitude
+    save_user(user_id, profile)
+    reply, _ = await get_bot_reply(user_id, "[SYSTEM: user just shared their location so we can send weather-aware hype messages. confirm it's saved, be brief and hype.]")
+    await send_with_typing(context.bot, update.effective_chat.id, reply, update.message.reply_text, user_id=user_id)
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -921,6 +1029,24 @@ async def process_strava_activity(user_id: str, profile: dict, activity_id: int)
         if activity_type not in ("run", "virtualrun", "trailrun"):
             return
 
+        # Sync shoe from Strava gear
+        gear = activity.get("gear", {})
+        if gear and gear.get("id"):
+            profile = get_user(user_id)
+            shoes = profile.get("shoes", [])
+            gear_id = gear["id"]
+            gear_name = gear.get("name", "Unknown shoe")
+            gear_km = round((gear.get("converted_distance", 0)), 1)
+            existing_ids = [s.get("strava_gear_id") for s in shoes]
+            if gear_id not in existing_ids:
+                shoes.append({"name": gear_name, "km": gear_km, "strava_gear_id": gear_id})
+            else:
+                for shoe in shoes:
+                    if shoe.get("strava_gear_id") == gear_id:
+                        shoe["km"] = gear_km
+            profile["shoes"] = shoes
+            save_user(user_id, profile)
+
         # Parse activity data
         distance_km = round(activity.get("distance", 0) / 1000, 2)
         duration_min = round(activity.get("moving_time", 0) / 60, 1)
@@ -1024,6 +1150,78 @@ async def handle_strava_auth(request: web.Request) -> web.Response:
     return web.Response(text="✅ Strava connected! Head back to Telegram.", content_type="text/html")
 
 
+# ─────────────────────────────────────────
+#  WEATHER
+# ─────────────────────────────────────────
+async def get_weather(lat: float, lon: float) -> str:
+    """Fetch today's weather from Open-Meteo (free, no API key)."""
+    import aiohttp
+    url = (
+        f"https://api.open-meteo.com/v1/forecast"
+        f"?latitude={lat}&longitude={lon}"
+        f"&current=temperature_2m,weathercode,windspeed_10m,precipitation"
+        f"&timezone=auto"
+    )
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    curr = data.get("current", {})
+                    temp = curr.get("temperature_2m", "?")
+                    wind = curr.get("windspeed_10m", 0)
+                    precip = curr.get("precipitation", 0)
+                    code = curr.get("weathercode", 0)
+                    # Simple weather description from WMO code
+                    if code == 0: desc = "clear skies ☀️"
+                    elif code <= 3: desc = "partly cloudy 🌤"
+                    elif code <= 48: desc = "foggy 🌫"
+                    elif code <= 67: desc = "rainy 🌧"
+                    elif code <= 77: desc = "snowy ❄️"
+                    elif code <= 82: desc = "heavy rain 🌧"
+                    else: desc = "stormy ⛈"
+                    result = f"{desc}, {temp}°C"
+                    if wind > 20: result += f", windy ({wind}km/h)"
+                    if precip > 0: result += f", {precip}mm rain"
+                    return result
+    except Exception as e:
+        logger.warning(f"Weather fetch failed: {e}")
+    return ""
+
+
+# ─────────────────────────────────────────
+#  GHOST CHECKER — runs daily
+# ─────────────────────────────────────────
+async def check_ghosts(context: ContextTypes.DEFAULT_TYPE):
+    """Check for inactive users and send increasingly desperate messages."""
+    users = load_users()
+    for user_id, profile in users.items():
+        if not profile.get("onboarded"):
+            continue
+        last_active = profile.get("last_active", "")
+        if not last_active:
+            continue
+        try:
+            last_dt = datetime.strptime(last_active, "%Y-%m-%d")
+            days_gone = (datetime.now() - last_dt).days
+        except:
+            continue
+
+        if days_gone in (3, 7, 10):  # only ping on specific days, not every day
+            if days_gone <= 5:
+                trigger = f"[SYSTEM: user has ghosted for {days_gone} days. mild roast, ask where they've been. short.]"
+            elif days_gone <= 9:
+                trigger = f"[SYSTEM: user has ghosted for {days_gone} days. more dramatic, genuinely worried. short.]"
+            else:
+                trigger = f"[SYSTEM: user has ghosted for {days_gone} days. full breakdown. act personally hurt. guilt trip them lovingly. short.]"
+
+            reply, _ = await get_bot_reply(user_id, trigger)
+            try:
+                await send_with_typing(context.application.bot, int(user_id), reply, user_id=user_id)
+            except Exception as e:
+                logger.warning(f"Ghost message failed for {user_id}: {e}")
+
+
 async def handle_health(request: web.Request) -> web.Response:
     return web.Response(status=200, text="ok")
 
@@ -1070,6 +1268,7 @@ def main():
     tg_app.add_handler(CommandHandler("start", start))
     tg_app.add_handler(CommandHandler("strava", strava_connect))
     tg_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    tg_app.add_handler(MessageHandler(filters.LOCATION, handle_location))
     tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     async def on_startup(app):
