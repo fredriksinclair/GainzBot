@@ -1734,13 +1734,13 @@ def main():
             drop_pending_updates=True,
         )
         logger.info("GAINZ BOT IS ALIVE. LFG 💪")
-    logger.info(f"DATA_FILE path: {DATA_FILE}")
-    logger.info(f"DATA_FILE exists: {Path(DATA_FILE).exists()}")
-    users = load_users()
-    logger.info(f"Users loaded: {list(users.keys())}")
-    for uid, p in users.items():
-        sessions = p.get("stats", {}).get("sessions", [])
-        logger.info(f"  User {uid}: {len(sessions)} sessions, shoes: {len(p.get('shoes',[]))}")
+        logger.info(f"DATA_FILE path: {DATA_FILE}")
+        logger.info(f"DATA_FILE exists: {Path(DATA_FILE).exists()}")
+        users = load_users()
+        logger.info(f"Users loaded: {list(users.keys())}")
+        for uid, p in users.items():
+            sessions = p.get("stats", {}).get("sessions", [])
+            logger.info(f"  User {uid}: {len(sessions)} sessions, shoes: {len(p.get('shoes',[]))}")
 
         # Run forever
         import signal
