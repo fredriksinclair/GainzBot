@@ -318,9 +318,12 @@ Don't mention the weather every single message — only when it's relevant (they
 If user says their city (e.g. "i'm in Stockholm", "based in London") → save it: PROFILE_UPDATE:{"city":"Stockholm"}
 
 ━━━ SHOES ━━━
+Strava gives us: shoe name and total km. That's it — no brand or model unless it's in the name.
 If shoe data injected below:
-- Approaching 600km → warn them casually
-- Over 700km → refuse to let them use those shoes, "bro those are dead, retire them"
+- Approaching 550km → mention it casually, "those are getting up there in miles"
+- Over 700km → "bro those are cooked, retire them, running on dead shoes is asking for injury"
+- retired: true → they already retired that shoe in Strava, acknowledge it
+User can sync shoes anytime with /syncshoes
 
 - STRICT MESSAGE RULES:
   CHAT (default — hyping, reacting, checking in): 1-3 messages max. short. punchy. done.
@@ -941,12 +944,23 @@ async def process_user_messages(user_id: str, app):
                 if any(s in text.lower() for s in no_proof):
                     text = "PROOF_RESULT:NO_PROOF"
 
-            # Inject live weather so Claude can reference it naturally
+            # Detect city from message directly as backup
+            import re as _re
+            city_match = _re.search(r"(?:i(?:'m| am) (?:in|based in|from)|i live in|based in|from|living in) ([A-Z][a-z]+(?:\s[A-Z][a-z]+)?)", text, _re.IGNORECASE)
+            if city_match and not profile.get('city'):
+                detected_city = city_match.group(1).strip()
+                profile['city'] = detected_city
+                save_user(user_id, profile)
+                logger.info(f'Auto-detected city: {detected_city} for {user_id}')
+
+            # Inject live weather as context prefix — invisible to user
             city = profile.get("city", "")
+            weather_prefix = ""
             if city:
                 weather = await get_weather_by_city(city)
                 if weather:
-                    text = f"[WEATHER in {city} right now: {weather}]\n{text}"
+                    weather_prefix = f"[SYSTEM CONTEXT — do NOT repeat this back: weather in {city} right now is {weather}. use this naturally only when relevant.]\n"
+            text = weather_prefix + text
 
             reply, updated_profile = await get_bot_reply(user_id, text)
 
@@ -1171,13 +1185,22 @@ async def process_strava_activity(user_id: str, profile: dict, activity_id: int)
             pace_str = f"{pace_min}:{pace_sec:02d}"
 
         # Log the session
+        cadence = activity.get("average_cadence", 0)
+        elevation = activity.get("total_elevation_gain", 0)
+        suffer_score = activity.get("suffer_score", 0)
+        max_hr = activity.get("max_heartrate", 0)
+
         session_data = {
             "type": "run",
             "distance_km": distance_km,
             "duration_min": duration_min,
             "pace_per_km": pace_str,
             "heart_rate": int(avg_hr) if avg_hr else 0,
-            "effort": 0,
+            "max_heart_rate": int(max_hr) if max_hr else 0,
+            "cadence": int(cadence) if cadence else 0,
+            "elevation_m": round(elevation, 0) if elevation else 0,
+            "suffer_score": suffer_score,
+            "effort": min(10, round(suffer_score / 20)) if suffer_score else 0,
             "notes": f"via Strava: {name}",
         }
         log_session(user_id, session_data)
@@ -1272,8 +1295,9 @@ async def handle_strava_auth(request: web.Request) -> web.Response:
 
     logger.info(f"Strava linked for user {telegram_user_id}")
 
-    # Sync shoes immediately after linking
+    # Sync shoes + history immediately after linking
     asyncio.create_task(sync_strava_shoes(telegram_user_id, profile))
+    asyncio.create_task(sync_strava_history(telegram_user_id, profile))
 
     # Notify user in Telegram
     try:
@@ -1401,33 +1425,133 @@ async def check_ghosts(context: ContextTypes.DEFAULT_TYPE):
                 logger.warning(f"Ghost message failed for {user_id}: {e}")
 
 
+async def sync_strava_history(user_id: str, profile: dict, pages: int = 3):
+    """Fetch last ~90 runs from Strava and backfill session history."""
+    import aiohttp
+    profile = get_user(user_id) or profile
+    access_token = await get_valid_strava_token(user_id, profile)
+    if not access_token:
+        return
+    try:
+        all_activities = []
+        async with aiohttp.ClientSession() as session:
+            for page in range(1, pages + 1):
+                url = (
+                    f"https://www.strava.com/api/v3/athlete/activities"
+                    f"?per_page=30&page={page}&activity_type=Run"
+                )
+                headers = {"Authorization": f"Bearer {access_token}"}
+                async with session.get(url, headers=headers) as resp:
+                    if resp.status != 200:
+                        break
+                    activities = await resp.json()
+                    if not activities:
+                        break
+                    all_activities.extend(activities)
+
+        profile = get_user(user_id) or profile
+        stats = get_stats(profile)
+        existing_dates = {s["date"] for s in stats["sessions"]}
+        added = 0
+
+        for act in all_activities:
+            act_type = act.get("type", "").lower()
+            if act_type not in ("run", "virtualrun", "trailrun"):
+                continue
+
+            date_str = act.get("start_date_local", "")[:10]
+            if date_str in existing_dates:
+                continue
+
+            distance_km = round(act.get("distance", 0) / 1000, 2)
+            duration_min = round(act.get("moving_time", 0) / 60, 1)
+            avg_hr = act.get("average_heartrate", 0)
+            max_hr = act.get("max_heartrate", 0)
+            cadence = act.get("average_cadence", 0)
+            elevation = act.get("total_elevation_gain", 0)
+            suffer_score = act.get("suffer_score", 0)
+
+            pace_str = ""
+            if distance_km > 0 and duration_min > 0:
+                pace_sec = (duration_min * 60) / distance_km
+                pace_str = f"{int(pace_sec//60)}:{int(pace_sec%60):02d}"
+
+            session = {
+                "date": date_str,
+                "type": "run",
+                "muscle": "",
+                "distance_km": distance_km,
+                "duration_min": duration_min,
+                "pace_per_km": pace_str,
+                "heart_rate": int(avg_hr) if avg_hr else 0,
+                "max_heart_rate": int(max_hr) if max_hr else 0,
+                "cadence": int(cadence) if cadence else 0,
+                "elevation_m": round(elevation, 0) if elevation else 0,
+                "suffer_score": suffer_score,
+                "effort": min(10, round(suffer_score / 20)) if suffer_score else 0,
+                "notes": f"via Strava: {act.get('name', 'run')}",
+            }
+            stats["sessions"].append(session)
+            stats["total_sessions"] += 1
+            existing_dates.add(date_str)
+
+            # Update weekly mileage
+            if distance_km:
+                try:
+                    week_key = datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y-W%W")
+                    stats["weekly_mileage"][week_key] = stats["weekly_mileage"].get(week_key, 0) + distance_km
+                except: pass
+
+            added += 1
+
+        # Sort sessions by date
+        stats["sessions"].sort(key=lambda x: x["date"], reverse=True)
+        stats["total_sessions"] = len([s for s in stats["sessions"]])
+        profile["stats"] = stats
+        save_user(user_id, profile)
+        logger.info(f"Imported {added} historical runs for {user_id}")
+        return added
+    except Exception as e:
+        logger.warning(f"History sync error for {user_id}: {e}")
+        return 0
+
+
 async def sync_strava_shoes(user_id: str, profile: dict):
     """Pull all shoes from Strava athlete profile."""
     import aiohttp
+    # Always reload profile to get latest tokens
+    profile = get_user(user_id) or profile
     access_token = await get_valid_strava_token(user_id, profile)
     if not access_token:
+        logger.warning(f"No access token for shoe sync — user {user_id}")
         return
     try:
         url = "https://www.strava.com/api/v3/athlete"
         headers = {"Authorization": f"Bearer {access_token}"}
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers) as resp:
+                body = await resp.json()
                 if resp.status != 200:
+                    logger.warning(f"Strava athlete fetch failed: {resp.status} — {body}")
                     return
-                athlete = await resp.json()
-                gear_list = athlete.get("shoes", [])
+                gear_list = body.get("shoes", [])
                 shoes = []
                 for g in gear_list:
+                    name = g.get("name") or g.get("nickname") or "Unnamed shoe"
+                    km = round(g.get("converted_distance", 0), 1)
+                    retired = g.get("retired", False)
                     shoes.append({
-                        "name": g.get("name", g.get("nickname", "Unknown")),
-                        "km": round(g.get("converted_distance", 0), 1),
+                        "name": name,
+                        "km": km,
                         "strava_gear_id": g.get("id", ""),
+                        "retired": retired,
                     })
+                profile = get_user(user_id) or profile
                 profile["shoes"] = shoes
                 save_user(user_id, profile)
-                logger.info(f"Synced {len(shoes)} shoes for {user_id}")
+                logger.info(f"Synced {len(shoes)} shoes for {user_id}: {[s['name'] for s in shoes]}")
     except Exception as e:
-        logger.warning(f"Shoe sync failed: {e}")
+        logger.warning(f"Shoe sync error for {user_id}: {e}")
 
 
 async def handle_health(request: web.Request) -> web.Response:
@@ -1442,6 +1566,39 @@ def start_webhook_server():
     app.router.add_post("/strava/webhook", handle_strava_webhook)
     app.router.add_get("/strava/auth", handle_strava_auth)
     return app
+
+
+async def strava_history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manually import last 90 runs from Strava."""
+    user_id = str(update.effective_user.id)
+    profile = get_user(user_id)
+    if not profile or not profile.get("strava_access_token"):
+        await update.message.reply_text("connect Strava first with /strava")
+        return
+    await update.message.reply_text("importing your run history from Strava...")
+    added = await sync_strava_history(user_id, profile)
+    await update.message.reply_text(f"done — imported {added} runs from Strava")
+
+
+async def strava_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manually trigger shoe + data sync from Strava."""
+    user_id = str(update.effective_user.id)
+    profile = get_user(user_id)
+    if not profile or not profile.get("strava_access_token"):
+        await update.message.reply_text("you haven't connected Strava yet — use /strava to link it")
+        return
+    await update.message.reply_text("syncing your Strava data...")
+    await sync_strava_shoes(user_id, profile)
+    profile = get_user(user_id)
+    shoes = profile.get("shoes", [])
+    if shoes:
+        lines = ["got your shoes:"]
+        for s in shoes:
+            status = "retired" if s.get("retired") else ("⚠️ getting worn" if s["km"] > 550 else "good")
+            lines.append(f"  {s['name']} — {s['km']}km ({status})")
+        await update.message.reply_text("\n".join(lines))
+    else:
+        await update.message.reply_text("no shoes found on your Strava — make sure you have shoes added at strava.com/settings/gear")
 
 
 async def strava_connect(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1475,6 +1632,8 @@ def main():
     tg_app = Application.builder().token(TELEGRAM_TOKEN).build()
     tg_app.add_handler(CommandHandler("start", start))
     tg_app.add_handler(CommandHandler("strava", strava_connect))
+    tg_app.add_handler(CommandHandler("syncshoes", strava_sync))
+    tg_app.add_handler(CommandHandler("synchistory", strava_history_cmd))
     tg_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     tg_app.add_handler(MessageHandler(filters.LOCATION, handle_location))
     tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
