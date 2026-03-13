@@ -474,6 +474,7 @@ Missed days: {stats['missed_days']}
         if mileage:
             base += f"Weekly mileage trend: {', '.join([f'{w}: {round(km,1)}km' for w,km in mileage.items()])}\n"
 
+        logger.info(f"PROMPT DEBUG — user {user_id}: {len(recent_runs)} recent runs, sessions in profile: {len(get_stats(profile).get('sessions', []))}")
         if recent_runs:
             base += f"⚠️ IMPORTANT: you DO have {len(recent_runs)} recent runs. always reference this data when asked about past runs:\n"
             for r in recent_runs:
