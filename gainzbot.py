@@ -1505,6 +1505,11 @@ async def sync_strava_history(user_id: str, profile: dict, pages: int = 3):
         existing_dates = {s["date"] for s in stats["sessions"]}
         added = 0
 
+        runs_found = [a for a in all_activities if a.get("type","").lower() in ("run","virtualrun","trailrun")]
+        logger.info(f"History sync: {len(all_activities)} total activities, {len(runs_found)} runs, {len(existing_dates)} existing dates")
+        if runs_found:
+            logger.info(f"First run date: {runs_found[0].get('start_date_local','')[:10]}, existing sample: {list(existing_dates)[:3]}")
+
         for act in all_activities:
             act_type = act.get("type", "").lower()
             if act_type not in ("run", "virtualrun", "trailrun"):
@@ -1512,6 +1517,7 @@ async def sync_strava_history(user_id: str, profile: dict, pages: int = 3):
 
             date_str = act.get("start_date_local", "")[:10]
             if date_str in existing_dates:
+                logger.info(f"Skipping {date_str} — already exists")
                 continue
 
             distance_km = round(act.get("distance", 0) / 1000, 2)
