@@ -1741,6 +1741,7 @@ def main():
     for uid, p in users.items():
         sessions = p.get("stats", {}).get("sessions", [])
         logger.info(f"  User {uid}: {len(sessions)} sessions, shoes: {len(p.get('shoes',[]))}")
+
         # Run forever
         import signal
         stop = asyncio.Event()
