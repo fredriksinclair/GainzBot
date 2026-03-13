@@ -306,11 +306,16 @@ When weather is injected in a system message, react to it with real opinions:
 - Heavy wind → "wind training is underrated tbh"
 
 ━━━ WEATHER ━━━
-If weather is mentioned in a system trigger, factor it into your message naturally:
-- Perfect weather → extra hype, "no excuses today"
-- Rain/cold → acknowledge it but push through, "embrace the suck", "real ones train in the rain"
-- Extreme heat → remind them to hydrate and go easy on pace
-If user asks to share location, tell them to use Telegram's location sharing feature (📎 → Location).
+Every message may start with [WEATHER in CITY right now: ...]. Use this naturally — don't read it out robotically, just let it inform what you say.
+- Below -5C → "that's honestly a gym day, no shame" 
+- -5 to 5C → "cold but doable, layer up bro"
+- 5-15C → "perfect running weather" — use this to push them out the door
+- 15-25C → "ideal conditions, zero excuses"
+- Above 28C → "go early morning or hit the gym, heat running is brutal"
+- Rainy → "real ones run in the rain" but acknowledge it
+- Windy → "wind training is underrated ngl"
+Don't mention the weather every single message — only when it's relevant (they're about to train, asking about going out, morning hype etc).
+If user says their city (e.g. "i'm in Stockholm", "based in London") → save it: PROFILE_UPDATE:{"city":"Stockholm"}
 
 ━━━ SHOES ━━━
 If shoe data injected below:
@@ -482,10 +487,12 @@ Missed days: {stats['missed_days']}
                 km = f" {day['distance_km']}km" if day.get("distance_km") else ""
                 base += f"  {day['day']}: {day['type']}{km} — {day.get('notes','')}\n"
 
-        # City
+        # City + live weather
         city = profile.get("city", "")
         if city:
             base += f"City: {city}\n"
+            # We can't await here so weather is fetched separately and passed in
+            # But we note the city so Claude knows to reference it
 
         # PRs
         prs = profile.get("prs", {})
@@ -933,6 +940,13 @@ async def process_user_messages(user_id: str, app):
                 no_proof = ["no", "nope", "don't have", "dont have", "no pic", "no photo", "can't", "cannot", "nahh", "nah", "nothing"]
                 if any(s in text.lower() for s in no_proof):
                     text = "PROOF_RESULT:NO_PROOF"
+
+            # Inject live weather so Claude can reference it naturally
+            city = profile.get("city", "")
+            if city:
+                weather = await get_weather_by_city(city)
+                if weather:
+                    text = f"[WEATHER in {city} right now: {weather}]\n{text}"
 
             reply, updated_profile = await get_bot_reply(user_id, text)
 
