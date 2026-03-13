@@ -1633,7 +1633,13 @@ async def strava_history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("connect Strava first with /strava")
         return
     await update.message.reply_text("importing your run history from Strava...")
-    added = await sync_strava_history(user_id, profile)
+    # Clear existing sessions so we don't skip anything
+    profile = get_user(user_id) or profile
+    profile.setdefault("stats", {})["sessions"] = []
+    profile["stats"]["total_sessions"] = 0
+    profile["stats"]["weekly_mileage"] = {}
+    save_user(user_id, profile)
+    added = await sync_strava_history(user_id, profile, pages=3)
     await update.message.reply_text(f"done — imported {added} runs from Strava")
 
 
