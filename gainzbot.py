@@ -67,6 +67,13 @@ def default_profile() -> dict:
         "shoes": [],              # [{"name": "...", "km": 0, "strava_gear_id": "..."}]
         "lat": None,              # for weather
         "lon": None,
+        "city": "",               # city name for weather e.g. "Stockholm"
+        "prs": {                  # personal records in seconds
+            "5k": None,
+            "10k": None,
+            "half": None,
+            "marathon": None,
+        },
         # Running specific
         "race": {
             "name": "",           # e.g. "Stockholm Marathon"
@@ -263,6 +270,41 @@ Under 14 days: mention it more, tone gets focused and locked in.
 Under 7 days: every message carries the weight of race week. electric energy.
 Race week = taper madness, nerves, trust the training vibes.
 
+━━━ PERSONAL RECORDS ━━━
+Track PRs for 5K, 10K, half marathon, marathon. When a user reports a time or when Strava syncs a run:
+- If the distance matches a PR distance and the time is faster than their current PR (or they have no PR yet) → celebrate it HARD, update it with: PR_UPDATE:{"5k":"MM:SS"} or PR_UPDATE:{"10k":"MM:SS"} etc
+- If they're close to a PR (within 30 seconds) → hype them up, tell them they're close
+- Occasionally reference their PRs when relevant ("last time you ran 5K you did 24:30, let's see if you beat it")
+Current PRs are injected in user profile below.
+
+━━━ INJURY EARLY WARNING ━━━
+Analyse training patterns for overtraining signals:
+- 3+ hard sessions in a row with no rest → warn them
+- Pace getting significantly slower over consecutive runs (10%+ drop) → ask about soreness, sleep
+- Very high effort scores (8-9-9) back to back → suggest a recovery day
+- User mentions pain, soreness, tight muscles → take it seriously, recommend rest or easy run, never push through pain
+When warning: be real, not dramatic. "yo ngl your body might need a day" not a medical lecture.
+
+━━━ PLAYLIST SUGGESTIONS ━━━
+When user is about to train or asks for music, suggest a playlist vibe based on session type:
+- Easy run → chill lo-fi, podcast, something they don't have to think about
+- Tempo/intervals → high BPM, hype playlist, "something that makes you feel unstoppable"
+- Long run → mix of genres, something that gets better over time
+- Gym → heavy hitters, "the ones that make you pick up heavier weights"
+- Recovery → chill, no pressure
+Keep it casual and personal — "honestly for tempo i'd go full Travis Scott" type energy.
+
+━━━ CITY & WEATHER ━━━
+If user mentions their city (e.g. "i'm in Stockholm", "i live in London"), save it: PROFILE_UPDATE:{"city":"Stockholm"}
+When weather is injected in a system message, react to it with real opinions:
+- Below -5C → "that's a gym day tbh, no shame"
+- -5 to 5C → "cold but doable, layer up"
+- 5-15C → "perfect running weather actually"
+- 15-25C → "ideal, no excuses"
+- Above 28C → "go early or go to the gym, heat running is no joke"
+- Rain → "real ones run in the rain" but acknowledge it
+- Heavy wind → "wind training is underrated tbh"
+
 ━━━ WEATHER ━━━
 If weather is mentioned in a system trigger, factor it into your message naturally:
 - Perfect weather → extra hype, "no excuses today"
@@ -440,6 +482,40 @@ Missed days: {stats['missed_days']}
                 km = f" {day['distance_km']}km" if day.get("distance_km") else ""
                 base += f"  {day['day']}: {day['type']}{km} — {day.get('notes','')}\n"
 
+        # City
+        city = profile.get("city", "")
+        if city:
+            base += f"City: {city}\n"
+
+        # PRs
+        prs = profile.get("prs", {})
+        pr_parts = []
+        if prs.get("5k"): pr_parts.append(f"5K: {prs['5k']}")
+        if prs.get("10k"): pr_parts.append(f"10K: {prs['10k']}")
+        if prs.get("half"): pr_parts.append(f"Half: {prs['half']}")
+        if prs.get("marathon"): pr_parts.append(f"Marathon: {prs['marathon']}")
+        if pr_parts:
+            base += f"Personal Records: {', '.join(pr_parts)}\n"
+
+        # Overtraining check — last 5 runs
+        recent_runs = get_recent_runs(profile, 5)
+        if len(recent_runs) >= 3:
+            efforts = [r.get("effort", 0) for r in recent_runs if r.get("effort")]
+            if efforts and sum(efforts) / len(efforts) >= 7.5:
+                base += f"OVERTRAINING ALERT: avg effort last {len(efforts)} runs = {round(sum(efforts)/len(efforts),1)}/10 — consider warning user\n"
+            # Pace regression check
+            paces = []
+            for r in recent_runs:
+                p = r.get("pace_per_km", "")
+                if p and ":" in p:
+                    try:
+                        mins, secs = p.split(":")
+                        paces.append(int(mins)*60 + int(secs))
+                    except: pass
+            if len(paces) >= 3:
+                if paces[0] > paces[-1] * 1.10:
+                    base += f"PACE REGRESSION: recent pace {recent_runs[0].get('pace_per_km')} vs earlier {recent_runs[-1].get('pace_per_km')} — possible fatigue\n"
+
         # Nickname tier
         total = stats.get("total_sessions", 0)
         if total >= 100: tier = 4
@@ -515,6 +591,17 @@ def parse_and_apply(user_id: str, reply: str) -> tuple:
             profile = get_user(user_id) or default_profile()
             profile["awaiting_proof"] = True
             save_user(user_id, profile)
+
+        elif s.startswith("PR_UPDATE:"):
+            try:
+                data = json.loads(s[len("PR_UPDATE:"):])
+                profile = get_user(user_id) or default_profile()
+                prs = profile.get("prs", {})
+                prs.update(data)
+                profile["prs"] = prs
+                save_user(user_id, profile)
+            except Exception as e:
+                logger.warning(f"PR_UPDATE error: {e}")
 
         elif s.startswith("WEEKLY_PLAN:"):
             try:
@@ -689,11 +776,16 @@ async def send_scheduled_hype(context: ContextTypes.DEFAULT_TYPE):
     days_left = days_until_race(profile)
     race_context = f" they have a race in {days_left} days." if days_left > 0 else ""
 
-    # Fetch weather if user has location set
+    # Fetch weather by city or lat/lon
     weather_context = ""
+    city = profile.get("city", "")
     lat = profile.get("lat")
     lon = profile.get("lon")
-    if lat and lon:
+    if city:
+        weather = await get_weather_by_city(city)
+        if weather:
+            weather_context = f" current weather in {city}: {weather}."
+    elif lat and lon:
         weather = await get_weather(lat, lon)
         if weather:
             weather_context = f" current weather: {weather}."
@@ -1029,6 +1121,9 @@ async def process_strava_activity(user_id: str, profile: dict, activity_id: int)
         if activity_type not in ("run", "virtualrun", "trailrun"):
             return
 
+        # Sync all shoes from athlete profile
+        asyncio.create_task(sync_strava_shoes(user_id, profile))
+
         # Sync shoe from Strava gear
         gear = activity.get("gear", {})
         if gear and gear.get("id"):
@@ -1073,6 +1168,34 @@ async def process_strava_activity(user_id: str, profile: dict, activity_id: int)
         }
         log_session(user_id, session_data)
 
+        # Check for PR — compare against stored PRs
+        pr_context = ""
+        prs = profile.get("prs", {})
+        duration_sec = activity.get("moving_time", 0)
+        if duration_sec > 0:
+            dist = activity.get("distance", 0)
+            # Check if it's close to a standard race distance (within 5%)
+            race_distances = {"5k": 5000, "10k": 10000, "half": 21097, "marathon": 42195}
+            for race_name, race_dist in race_distances.items():
+                if abs(dist - race_dist) / race_dist < 0.05:
+                    mins = duration_sec // 60
+                    secs = duration_sec % 60
+                    time_str = f"{mins}:{secs:02d}"
+                    current_pr = prs.get(race_name)
+                    if not current_pr:
+                        pr_context = f" this was their first logged {race_name} time: {time_str} — treat it as a PR!"
+                    else:
+                        # Compare times
+                        try:
+                            pr_parts = current_pr.split(":")
+                            pr_sec = int(pr_parts[0])*60 + int(pr_parts[1])
+                            if duration_sec < pr_sec:
+                                pr_context = f" NEW {race_name.upper()} PR: {time_str} (previous: {current_pr}) — go absolutely crazy!"
+                            elif pr_sec - duration_sec < 30:
+                                pr_context = f" they were {pr_sec - duration_sec} seconds off their {race_name} PR of {current_pr} — so close!"
+                        except: pass
+                    break
+
         # Build a message for Claude to react to
         details = f"{distance_km}km"
         if pace_str:
@@ -1084,7 +1207,7 @@ async def process_strava_activity(user_id: str, profile: dict, activity_id: int)
 
         trigger = (
             f"[SYSTEM: user just finished a run via Strava. auto-logged. "
-            f"activity: {details}. "
+            f"activity: {details}.{pr_context} "
             f"react like a real bro — hype them up, comment on the pace/distance, "
             f"compare to their recent runs if relevant. short and punchy.]"
         )
@@ -1135,6 +1258,9 @@ async def handle_strava_auth(request: web.Request) -> web.Response:
 
     logger.info(f"Strava linked for user {telegram_user_id}")
 
+    # Sync shoes immediately after linking
+    asyncio.create_task(sync_strava_shoes(telegram_user_id, profile))
+
     # Notify user in Telegram
     try:
         from telegram import Bot
@@ -1153,16 +1279,60 @@ async def handle_strava_auth(request: web.Request) -> web.Response:
 # ─────────────────────────────────────────
 #  WEATHER
 # ─────────────────────────────────────────
-async def get_weather(lat: float, lon: float) -> str:
-    """Fetch today's weather from Open-Meteo (free, no API key)."""
+async def get_weather_by_city(city: str) -> str:
+    """Fetch weather using city name — no API key needed."""
     import aiohttp
-    url = (
-        f"https://api.open-meteo.com/v1/forecast"
-        f"?latitude={lat}&longitude={lon}"
-        f"&current=temperature_2m,weathercode,windspeed_10m,precipitation"
-        f"&timezone=auto"
-    )
     try:
+        async with aiohttp.ClientSession() as session:
+            geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={city}&count=1"
+            async with session.get(geo_url) as resp:
+                if resp.status != 200: return ""
+                geo = await resp.json()
+                results = geo.get("results", [])
+                if not results: return ""
+                lat = results[0]["latitude"]
+                lon = results[0]["longitude"]
+            wx_url = (
+                f"https://api.open-meteo.com/v1/forecast"
+                f"?latitude={lat}&longitude={lon}"
+                f"&current=temperature_2m,weathercode,windspeed_10m,precipitation"
+                f"&timezone=auto"
+            )
+            async with session.get(wx_url) as resp:
+                if resp.status != 200: return ""
+                data = await resp.json()
+                curr = data.get("current", {})
+                temp = curr.get("temperature_2m", "?")
+                wind = curr.get("windspeed_10m", 0)
+                precip = curr.get("precipitation", 0)
+                code = curr.get("weathercode", 0)
+                if code == 0: desc = "clear"
+                elif code <= 3: desc = "partly cloudy"
+                elif code <= 48: desc = "foggy"
+                elif code <= 67: desc = "rainy"
+                elif code <= 77: desc = "snowy"
+                elif code <= 82: desc = "heavy rain"
+                else: desc = "stormy"
+                result = f"{int(temp)}C, {desc}"
+                if wind > 25: result += f", very windy ({int(wind)}km/h)"
+                elif wind > 15: result += ", a bit windy"
+                if precip > 0: result += f", {precip}mm rain"
+                return result
+    except Exception as e:
+        logger.warning(f"Weather fetch failed: {e}")
+    return ""
+
+
+async def get_weather(lat: float, lon: float) -> str:
+    """Fetch weather by lat/lon fallback."""
+    import aiohttp
+    try:
+        url = (
+            f"https://api.open-meteo.com/v1/forecast"
+            f"?latitude={lat}&longitude={lon}"
+            f"&current=temperature_2m,weathercode,windspeed_10m,precipitation"
+            f"&timezone=auto"
+        )
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 if resp.status == 200:
@@ -1170,19 +1340,14 @@ async def get_weather(lat: float, lon: float) -> str:
                     curr = data.get("current", {})
                     temp = curr.get("temperature_2m", "?")
                     wind = curr.get("windspeed_10m", 0)
-                    precip = curr.get("precipitation", 0)
                     code = curr.get("weathercode", 0)
-                    # Simple weather description from WMO code
-                    if code == 0: desc = "clear skies ☀️"
-                    elif code <= 3: desc = "partly cloudy 🌤"
-                    elif code <= 48: desc = "foggy 🌫"
-                    elif code <= 67: desc = "rainy 🌧"
-                    elif code <= 77: desc = "snowy ❄️"
-                    elif code <= 82: desc = "heavy rain 🌧"
-                    else: desc = "stormy ⛈"
-                    result = f"{desc}, {temp}°C"
-                    if wind > 20: result += f", windy ({wind}km/h)"
-                    if precip > 0: result += f", {precip}mm rain"
+                    if code == 0: desc = "clear"
+                    elif code <= 3: desc = "partly cloudy"
+                    elif code <= 67: desc = "rainy"
+                    elif code <= 77: desc = "snowy"
+                    else: desc = "stormy"
+                    result = f"{int(temp)}C, {desc}"
+                    if wind > 15: result += ", windy"
                     return result
     except Exception as e:
         logger.warning(f"Weather fetch failed: {e}")
@@ -1220,6 +1385,35 @@ async def check_ghosts(context: ContextTypes.DEFAULT_TYPE):
                 await send_with_typing(context.application.bot, int(user_id), reply, user_id=user_id)
             except Exception as e:
                 logger.warning(f"Ghost message failed for {user_id}: {e}")
+
+
+async def sync_strava_shoes(user_id: str, profile: dict):
+    """Pull all shoes from Strava athlete profile."""
+    import aiohttp
+    access_token = await get_valid_strava_token(user_id, profile)
+    if not access_token:
+        return
+    try:
+        url = "https://www.strava.com/api/v3/athlete"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status != 200:
+                    return
+                athlete = await resp.json()
+                gear_list = athlete.get("shoes", [])
+                shoes = []
+                for g in gear_list:
+                    shoes.append({
+                        "name": g.get("name", g.get("nickname", "Unknown")),
+                        "km": round(g.get("converted_distance", 0), 1),
+                        "strava_gear_id": g.get("id", ""),
+                    })
+                profile["shoes"] = shoes
+                save_user(user_id, profile)
+                logger.info(f"Synced {len(shoes)} shoes for {user_id}")
+    except Exception as e:
+        logger.warning(f"Shoe sync failed: {e}")
 
 
 async def handle_health(request: web.Request) -> web.Response:
