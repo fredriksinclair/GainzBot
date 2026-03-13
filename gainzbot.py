@@ -481,7 +481,7 @@ def build_system_prompt(profile: dict) -> str:
         stats = get_stats(profile)
         race = profile.get("race", {})
         days_left = days_until_race(profile)
-        recent_runs = get_recent_runs(profile, 3)
+        recent_runs = get_recent_runs(profile, 10)
         mileage = get_weekly_mileage_trend(profile, 4)
 
         base += f"""
@@ -502,7 +502,7 @@ Missed days: {stats['missed_days']}
 
         logger.info(f"PROMPT DEBUG: {len(recent_runs)} recent runs, sessions in profile: {len(get_stats(profile).get('sessions', []))}")
         if recent_runs:
-            base += f"⚠️ IMPORTANT: you DO have {len(recent_runs)} recent runs. always reference this data when asked about past runs:\n"
+            base += f"⚠️ IMPORTANT: you have {len(recent_runs)} recent runs synced. use ALL of them when asked about progression, trends, or history:\n"
             for r in recent_runs:
                 parts = [r["date"]]
                 if r.get("name"): parts.append(f'"{r["name"]}"')
