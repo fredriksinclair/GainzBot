@@ -450,7 +450,9 @@ def build_system_prompt(profile: dict) -> str:
     today = datetime.now().strftime("%A %d %B %Y")
     date_block = "━━━ TODAY'S DATE ━━━\n" + today + "\n\n━━━ CURRENT USER INFO ━━━"
     base = SYSTEM_PROMPT.replace("━━━ CURRENT USER INFO ━━━", date_block)
-    if profile and profile.get("onboarded"):
+    # Consider onboarded if flagged OR if they have strava/session data
+    is_onboarded = profile and (profile.get("onboarded") or profile.get("strava_access_token") or get_stats(profile).get("sessions"))
+    if is_onboarded:
         days_str = ", ".join([DAY_NAMES[d] for d in profile.get("workout_days", [])])
         stats = get_stats(profile)
         race = profile.get("race", {})
@@ -1613,6 +1615,9 @@ async def sync_strava_shoes(user_id: str, profile: dict):
                 profile = get_user(user_id) or profile
                 profile["shoes"] = shoes
                 save_user(user_id, profile)
+                if shoes or get_stats(profile).get('sessions'):
+                    profile['onboarded'] = True
+                    save_user(user_id, profile)
                 logger.info(f"Synced {len(shoes)} shoes for {user_id}: {[s['name'] for s in shoes]}")
     except Exception as e:
         logger.warning(f"Shoe sync error for {user_id}: {e}")
