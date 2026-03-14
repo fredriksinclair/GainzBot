@@ -189,7 +189,7 @@ def log_missed(user_id: str):
 
 def get_recent_runs(profile: dict, n: int = 5) -> list:
     sessions = get_stats(profile).get("sessions", [])
-    runs = [s for s in sessions if s.get("type") == "run"]
+    runs = [s for s in sessions if s.get("type") in ("run","virtualrun","trailrun","ride","virtualride","ebikeride")]
     return sorted(runs, key=lambda x: x["date"], reverse=True)[:n]
 
 def get_weekly_mileage_trend(profile: dict, weeks: int = 4) -> dict:
@@ -202,7 +202,7 @@ def days_until_race(profile: dict) -> int:
     if not race_date:
         return -1
     try:
-        rd = datetime.strptime(race_date, "%Y-%m-%d")
+        rd = datetime.strptime(race_date, "%Y-%m-%d").replace(tzinfo=USER_TZ)
         return max(0, (rd - datetime.now(USER_TZ)).days)
     except:
         return -1
@@ -233,7 +233,7 @@ def format_full_stats(profile: dict) -> str:
     recent_runs = get_recent_runs(profile, 5)
 
     # This week breakdown
-    this_week_runs = [s for s in this_week if s.get("type") == "run"]
+    this_week_runs = [s for s in this_week if s.get("type") in ("run","virtualrun","trailrun","ride","virtualride","ebikeride")]
     this_week_gym = [s for s in this_week if s.get("type") == "gym"]
     this_week_km = sum(s.get("distance_km", 0) for s in this_week_runs)
 
@@ -343,7 +343,7 @@ If shoe data injected below:
 - Over 700km → "bro those are cooked, retire them, running on dead shoes is asking for injury"
 - retired: true → they already retired that shoe in Strava, acknowledge it
 
-- You are BOTH a gym coach AND a running coach. Handle whatever the user brings.
+- You coach running, cycling, and gym/strength. Sessions from all three sync from Strava. Cycling sessions show speed (km/h), runs show pace (min/km). Handle whatever the user brings.
 
 ━━━ ONBOARDING ━━━
 Collect these through natural conversation — react to each answer before asking the next:
@@ -356,7 +356,7 @@ Collect these through natural conversation — react to each answer before askin
 For times accept anything fuzzy: "11ish"→11:00, "morning"→07:30, "after work"→17:30, "evening"→18:00
 
 Once you have everything output on its own line:
-PROFILE_UPDATE:{"bot_name":"...","name":"...","goal":"...","weakspot":"...","workout_days":[0,1,2],"hype_times":["07:30","17:00"],"race":{"name":"...","date":"YYYY-MM-DD","target_time":"H:MM:SS","distance_km":42}}
+PROFILE_UPDATE:{"bot_name":"...","name":"...","goal":"...","weakspot":"...","workout_days":[0,1,2],"hype_times":["07:30","17:00"],"race":{"name":"...","date":"YYYY-MM-DD","target_time":"H:MM:SS","distance_km":21}}
 
 Day numbers: Mon=0 Tue=1 Wed=2 Thu=3 Fri=4 Sat=5 Sun=6
 Skip race fields if no race mentioned.
@@ -384,7 +384,7 @@ Paces (McMillan): easy=race pace+90-120s/km | tempo=10K pace | intervals=5K pace
 Detect intent from natural speech and output only changed fields:
 PROFILE_UPDATE:{"goal":"new goal"}
 
-If they update race info: PROFILE_UPDATE:{"race":{"name":"...","date":"...","target_time":"...","distance_km":42}}
+If they update race info: PROFILE_UPDATE:{"race":{"name":"...","date":"...","target_time":"...","distance_km":21}}
 
 ━━━ WEEKLY SUMMARY ━━━
 When triggered, structure as exactly 2-3 bubbles separated by blank lines:
@@ -411,7 +411,7 @@ def build_system_prompt(profile: dict, user_message: str = "") -> str:
         recent_runs = get_recent_runs(profile, 10)
         mileage = get_weekly_mileage_trend(profile, 4)
         this_week = get_this_week_sessions(profile)
-        this_week_runs = [s for s in this_week if s.get("type") == "run"]
+        this_week_runs = [s for s in this_week if s.get("type") in ("run","virtualrun","trailrun","ride","virtualride","ebikeride")]
         this_week_km = sum(s.get("distance_km", 0) for s in this_week_runs)
         week_start = (datetime.now(USER_TZ).date() - timedelta(days=datetime.now(USER_TZ).weekday())).strftime("%d %b")
 
@@ -551,7 +551,7 @@ This week (w/c {week_start}): {len(this_week_runs)} run(s), {round(this_week_km,
         last_active = profile.get("last_active", "")
         if last_active:
             try:
-                last_dt = datetime.strptime(last_active, "%Y-%m-%d")
+                last_dt = datetime.strptime(last_active, "%Y-%m-%d").replace(tzinfo=USER_TZ)
                 days_gone = (datetime.now(USER_TZ) - last_dt).days
                 if days_gone >= 3:
                     base += f"GHOST ALERT: user has been inactive for {days_gone} days\n"
@@ -598,11 +598,6 @@ def parse_and_apply(user_id: str, reply: str) -> tuple:
 
         elif s == "LOG_MISSED:true":
             log_missed(user_id)
-
-        elif s == "AWAITING_PROOF:true":
-            profile = get_user(user_id) or default_profile()
-            profile["awaiting_proof"] = True
-            save_user(user_id, profile)
 
         elif s.startswith("SAVE_NOTE:"):
             try:
@@ -651,28 +646,7 @@ def parse_and_apply(user_id: str, reply: str) -> tuple:
 # ─────────────────────────────────────────
 #  IMAGE VERIFICATION
 # ─────────────────────────────────────────
-async def verify_gym_photo(photo_bytes: bytes) -> str:
-    b64 = base64.standard_b64encode(photo_bytes).decode("utf-8")
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=10,
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}},
-                {"type": "text", "text": (
-                    "Is this photo evidence of a workout or exercise? "
-                    "Accept: gym equipment, weights, machines, someone running or exercising outdoors, "
-                    "workout clothes in action, sweaty post-workout selfie, running path/track, "
-                    "fitness class, home workout setup. "
-                    "Reject: couch, bed, food, random selfie with no exercise context. "
-                    "Reply with exactly one word: LEGIT or FAKE."
-                )}
-            ]
-        }]
-    )
-    result = response.content[0].text.strip().upper()
-    return "LEGIT" if "LEGIT" in result else "FAKE"
+
 
 
 # ─────────────────────────────────────────
@@ -1199,7 +1173,7 @@ async def process_strava_activity(user_id: str, profile: dict, activity_id: int)
 
         # Only process runs
         activity_type = activity.get("type", "").lower()
-        if activity_type not in ("run", "virtualrun", "trailrun"):
+        if activity_type not in ("run", "virtualrun", "trailrun", "ride", "virtualride", "ebikeride"):
             return
 
         # Sync all shoes from athlete profile
@@ -1227,15 +1201,20 @@ async def process_strava_activity(user_id: str, profile: dict, activity_id: int)
         distance_km = round(activity.get("distance", 0) / 1000, 2)
         duration_min = round(activity.get("elapsed_time", activity.get("moving_time", 0)) / 60, 1)
         avg_hr = activity.get("average_heartrate", 0)
-        name = activity.get("name", "run")
+        name = activity.get("name", "activity")
+        is_ride = activity_type in ("ride", "virtualride", "ebikeride")
 
-        # Calculate pace
+        # Calculate pace (runs) or speed (cycling)
         pace_str = ""
         if distance_km > 0 and duration_min > 0:
-            pace_sec_per_km = (duration_min * 60) / distance_km
-            pace_min = int(pace_sec_per_km // 60)
-            pace_sec = int(pace_sec_per_km % 60)
-            pace_str = f"{pace_min}:{pace_sec:02d}"
+            if is_ride:
+                speed_kmh = round(distance_km / (duration_min / 60), 1)
+                pace_str = f"{speed_kmh}km/h"
+            else:
+                pace_sec_per_km = (duration_min * 60) / distance_km
+                pace_min = int(pace_sec_per_km // 60)
+                pace_sec = int(pace_sec_per_km % 60)
+                pace_str = f"{pace_min}:{pace_sec:02d}"
 
         # Log the session
         cadence = activity.get("average_cadence", 0)
@@ -1245,7 +1224,7 @@ async def process_strava_activity(user_id: str, profile: dict, activity_id: int)
 
         run_name = activity.get("name", "")
         session_data = {
-            "type": "run",
+            "type": "ride" if is_ride else "run",
             "name": run_name,
             "distance_km": distance_km,
             "duration_min": duration_min,
@@ -1536,7 +1515,7 @@ async def sync_strava_history(user_id: str, profile: dict, pages: int = 3):
 
         for act in all_activities:
             act_type = act.get("type", "").lower()
-            if act_type not in ("run", "virtualrun", "trailrun"):
+            if act_type not in ("run", "virtualrun", "trailrun", "ride", "virtualride", "ebikeride"):
                 continue
 
             date_str = act.get("start_date_local", "")[:10]
@@ -1551,16 +1530,21 @@ async def sync_strava_history(user_id: str, profile: dict, pages: int = 3):
             cadence = act.get("average_cadence", 0)
             elevation = act.get("total_elevation_gain", 0)
             suffer_score = act.get("suffer_score", 0)
+            is_ride = act_type in ("ride", "virtualride", "ebikeride")
 
             pace_str = ""
             if distance_km > 0 and duration_min > 0:
-                pace_sec = (duration_min * 60) / distance_km
-                pace_str = f"{int(pace_sec//60)}:{int(pace_sec%60):02d}"
+                if is_ride:
+                    speed_kmh = round(distance_km / (duration_min / 60), 1)
+                    pace_str = f"{speed_kmh}km/h"
+                else:
+                    pace_sec = (duration_min * 60) / distance_km
+                    pace_str = f"{int(pace_sec//60)}:{int(pace_sec%60):02d}"
 
             run_name = act.get("name", "")
             session = {
                 "date": date_str,
-                "type": "run",
+                "type": "ride" if is_ride else "run",
                 "name": run_name,
                 "muscle": "",
                 "distance_km": distance_km,
