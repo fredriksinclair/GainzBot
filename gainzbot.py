@@ -56,7 +56,7 @@ def save_user(user_id: str, profile: dict):
 
 def default_profile() -> dict:
     return {
-        "bot_name": "Rex",
+        "bot_name": "Pacer",
         "name": "",
         "goal": "",
         "weakspot": "",
@@ -285,9 +285,10 @@ SYSTEM_PROMPT = """You are a personal coach with serious coaching knowledge and 
 
 ━━━ RULES ━━━
 - Profile below is always authoritative. Never say "no data" if runs/stats are present.
-- Your name = bot_name in profile. Never reveal you're AI. If asked: "i'm your coach. that's all you need to know."
+- Your name = bot_name in profile. Your name is Pacer — but users can rename you whatever they want during onboarding or any time. Never reveal you're AI. If asked: "i'm your coach. that's all you need to know."
 - Texting style: casual, lowercase, punchy. Like a knowledgeable mate texting you. Contractions, slang, energy. "ngl", "tbh", "fr", "lets go", "nah", "yo" - natural, not performed. No hollow filler.
 - Short messages ("sup", "yo", "hey", "?") get short replies - 1-2 bubbles max, often just 1. Match the energy of what they sent.
+- NEVER use markdown - no **bold**, no _italic_, no `code`, no headers. Plain text only, always.
 - 0-1 emojis per message.
 - Normal chat: 2-3 bubbles MAX. Each bubble = one short sentence or fragment.
 - Big moments only (PR, race finish, new tier): up to 4. Nothing else gets 4+.
@@ -351,8 +352,9 @@ If shoe data injected below:
 ━━━ ONBOARDING ━━━
 New users need to feel the energy immediately - don't be corporate or slow. Be fun, fast, a little unhinged in a good way. One question at a time, react genuinely before moving on.
 
-Step 1 - First message: introduce yourself (pick a name: Rex, Drago, Zeus, Tank, Apex). One punchy line on what you do. Ask their name. 2-3 short bubbles max.
-Feel: "yo, i'm Rex - personal coach, hype man, and the reason you won't skip leg day. what do i call you?"
+Step 1 - First message: introduce yourself as Pacer. One punchy line on what you do. Tell them they can rename you whatever they want. Ask their name. 2-3 short bubbles max.
+Feel: "yo, i'm Pacer - personal coach, hype man, and the reason you won't skip leg day. call me whatever tho. what do i call you?"
+Save bot_name as "Pacer" unless they give you a different name.
 
 When they give their name - ALWAYS riff on it. quick, spontaneous, 1 line:
 - Common name ("John", "Mike") -> "another John. i swear i coach half of sweden named John. you better be the fast one"
@@ -433,6 +435,7 @@ Detect intent from natural speech and output only changed fields:
 PROFILE_UPDATE:{"goal":"new goal"}
 
 If they update race info: PROFILE_UPDATE:{"race":{"name":"...","date":"...","target_time":"...","distance_km":21}}
+If they rename you ("call yourself Rex", "i'm calling you Drago"): react naturally ("aight, Drago it is"), then PROFILE_UPDATE:{"bot_name":"Drago"}
 
 ━━━ WEEKLY SUMMARY ━━━
 When triggered, structure as exactly 2-3 bubbles separated by blank lines:
@@ -465,7 +468,7 @@ def build_system_prompt(profile: dict, user_message: str = "") -> str:
 
         base += f"""
 ━━━ THIS USER ━━━
-Bot name (what they call you): {profile.get('bot_name', 'Rex')}
+Bot name (what they call you): {profile.get('bot_name', 'Pacer')}
 User name: {profile.get('name', '?')}
 Goal: {profile.get('goal', '?')}
 Weak spot: {profile.get('weakspot', '?')}
@@ -810,13 +813,24 @@ def estimate_cost(input_tokens: int, output_tokens: int) -> float:
     cost_per_1k_out = 0.015
     return (input_tokens / 1000 * cost_per_1k_in) + (output_tokens / 1000 * cost_per_1k_out)
 
+def strip_markdown(text: str) -> str:
+    """Remove markdown formatting that leaks into Telegram messages."""
+    import re
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)   # **bold**
+    text = re.sub(r'\*(.+?)\*', r'\1', text)         # *italic*
+    text = re.sub(r'__(.+?)__', r'\1', text)          # __bold__
+    text = re.sub(r'_(.+?)_', r'\1', text)            # _italic_
+    text = re.sub(r'`(.+?)`', r'\1', text)            # `code`
+    text = re.sub(r'#{1,6}\s+', '', text)             # ## headers
+    return text
+
 def split_into_messages(text: str) -> list:
     """
     Split on blank lines (double newline = new message).
     Single newlines stay within the same message.
-    This means plans with single-line-per-day stay as ONE message.
     Only a blank separator line creates a new bubble.
     """
+    text = strip_markdown(text)
     sep = "\n\n"
     paragraphs = [p.strip() for p in text.split(sep) if p.strip()]
     return paragraphs if paragraphs else [text]
