@@ -5,6 +5,9 @@ import random
 import logging
 import asyncio
 from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
+
+USER_TZ = ZoneInfo("Europe/Stockholm")
 from pathlib import Path
 from anthropic import Anthropic
 from telegram import Update
@@ -122,7 +125,7 @@ def log_session(user_id: str, session_data: dict):
     if not profile:
         return
     stats = get_stats(profile)
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = datetime.now(USER_TZ).strftime("%Y-%m-%d")
     existing_dates = [s["date"] for s in stats["sessions"]]
     if today in existing_dates:
         # Update existing session with new data
@@ -152,11 +155,11 @@ def log_session(user_id: str, session_data: dict):
 
     # Update weekly mileage
     if session["distance_km"]:
-        week_key = datetime.now().strftime("%Y-W%W")
+        week_key = datetime.now(USER_TZ).strftime("%Y-W%W")
         stats["weekly_mileage"][week_key] = stats["weekly_mileage"].get(week_key, 0) + session["distance_km"]
 
     # Update streak
-    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    yesterday = (datetime.now(USER_TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
     if yesterday in existing_dates or stats["current_streak"] == 0:
         stats["current_streak"] += 1
     else:
@@ -174,7 +177,7 @@ def log_missed(user_id: str):
     if not profile:
         return
     stats = get_stats(profile)
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = datetime.now(USER_TZ).strftime("%Y-%m-%d")
     if today not in stats["missed"]:
         stats["missed"].append(today)
         stats["missed_days"] += 1
@@ -200,7 +203,7 @@ def days_until_race(profile: dict) -> int:
         return -1
     try:
         rd = datetime.strptime(race_date, "%Y-%m-%d")
-        return max(0, (rd - datetime.now()).days)
+        return max(0, (rd - datetime.now(USER_TZ)).days)
     except:
         return -1
 
@@ -359,7 +362,7 @@ Injected below.
 """
 
 def build_system_prompt(profile: dict, user_message: str = "") -> str:
-    today = datetime.now().strftime("%A %d %B %Y")
+    today = datetime.now(USER_TZ).strftime("%A %d %B %Y")
     date_block = "━━━ TODAY'S DATE ━━━\n" + today + "\n\n━━━ CURRENT USER INFO ━━━"
     base = SYSTEM_PROMPT.replace("━━━ CURRENT USER INFO ━━━", date_block)
     # Consider onboarded if flagged OR if they have strava/session data
@@ -510,7 +513,7 @@ Missed days: {stats['missed_days']}
         if last_active:
             try:
                 last_dt = datetime.strptime(last_active, "%Y-%m-%d")
-                days_gone = (datetime.now() - last_dt).days
+                days_gone = (datetime.now(USER_TZ) - last_dt).days
                 if days_gone >= 3:
                     base += f"GHOST ALERT: user has been inactive for {days_gone} days\n"
             except:
@@ -569,7 +572,7 @@ def parse_and_apply(user_id: str, reply: str) -> tuple:
                 if note:
                     profile = get_user(user_id) or default_profile()
                     notes = profile.get("notes", [])
-                    timestamp = datetime.now().strftime("%Y-%m-%d")
+                    timestamp = datetime.now(USER_TZ).strftime("%Y-%m-%d")
                     notes.append(f"{timestamp}: {note}")
                     profile["notes"] = notes[-20:]  # keep last 20
                     save_user(user_id, profile)
@@ -592,7 +595,7 @@ def parse_and_apply(user_id: str, reply: str) -> tuple:
                 plan = json.loads(s[len("WEEKLY_PLAN:"):])
                 profile = get_user(user_id) or default_profile()
                 profile["weekly_plan"] = {
-                    "generated_date": datetime.now().strftime("%Y-%m-%d"),
+                    "generated_date": datetime.now(USER_TZ).strftime("%Y-%m-%d"),
                     "plan": plan,
                 }
                 save_user(user_id, profile)
@@ -639,7 +642,9 @@ async def verify_gym_photo(photo_bytes: bytes) -> str:
 async def get_bot_reply(user_id: str, user_message: str) -> tuple:
     profile = get_user(user_id) or default_profile()
     history = profile.get("conversation", [])
-    history.append({"role": "user", "content": user_message})
+    today_str = datetime.now(USER_TZ).strftime("%A %d %B %Y")
+    stamped_message = f"[today is {today_str}] {user_message}"
+    history.append({"role": "user", "content": stamped_message})
 
     # Rough pre-check — estimate ~500 tokens per call
     if not check_rate_limit(user_id, estimate_cost(500, 200)):
@@ -698,7 +703,7 @@ def estimate_cost(input_tokens: int, output_tokens: int) -> float:
 
 def check_rate_limit(user_id: str, cost: float) -> bool:
     """Returns True if under limit, False if over."""
-    now = datetime.now()
+    now = datetime.now(USER_TZ)
     hour_ago = now - timedelta(hours=1)
     history = user_hourly_cost.get(user_id, [])
     history = [(t, c) for t, c in history if t > hour_ago]
@@ -764,10 +769,10 @@ async def send_scheduled_hype(context: ContextTypes.DEFAULT_TYPE):
     profile = get_user(user_id)
     if not profile or not profile.get("onboarded"):
         return
-    if datetime.now().weekday() not in profile.get("workout_days", []):
+    if datetime.now(USER_TZ).weekday() not in profile.get("workout_days", []):
         return
 
-    hour = datetime.now().hour
+    hour = datetime.now(USER_TZ).hour
     days_left = days_until_race(profile)
     race_context = f" they have a race in {days_left} days." if days_left > 0 else ""
 
@@ -931,7 +936,7 @@ async def process_user_messages(user_id: str, app):
             profile = get_user(user_id)
 
             # Update last active
-            profile['last_active'] = datetime.now().strftime('%Y-%m-%d')
+            profile['last_active'] = datetime.now(USER_TZ).strftime('%Y-%m-%d')
             save_user(user_id, profile)
 
             text = update.message.text
@@ -1093,7 +1098,7 @@ async def refresh_strava_token(user_id: str, profile: dict) -> str:
 async def get_valid_strava_token(user_id: str, profile: dict) -> str:
     """Return a valid access token, refreshing if expired."""
     expires = profile.get("strava_token_expires", 0)
-    if datetime.now().timestamp() >= expires - 60:
+    if datetime.now(USER_TZ).timestamp() >= expires - 60:
         return await refresh_strava_token(user_id, profile)
     return profile.get("strava_access_token", "")
 
@@ -1435,7 +1440,7 @@ async def check_ghosts(context: ContextTypes.DEFAULT_TYPE):
             continue
         try:
             last_dt = datetime.strptime(last_active, "%Y-%m-%d")
-            days_gone = (datetime.now() - last_dt).days
+            days_gone = (datetime.now(USER_TZ) - last_dt).days
         except:
             continue
 
@@ -1663,7 +1668,7 @@ async def handle_health(request: web.Request) -> web.Response:
             baseline = health.get("resting_hr_baseline") or health["resting_hr"]
             health["resting_hr_baseline"] = round(baseline * 0.9 + health["resting_hr"] * 0.1, 1)
 
-        health["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+        health["last_updated"] = datetime.now(USER_TZ).strftime("%Y-%m-%d %H:%M")
         profile["health"] = health
         save_user(user_id, profile)
         logger.info(f"Health data updated for {user_id}: {updated}")
@@ -1698,7 +1703,7 @@ async def check_health_alerts(user_id: str, profile: dict):
     if not alerts: return
 
     # Check if today is a planned training day
-    today_weekday = datetime.now().weekday()
+    today_weekday = datetime.now(USER_TZ).weekday()
     is_training_day = today_weekday in profile.get("workout_days", [])
 
     alert_text = " + ".join(alerts)
