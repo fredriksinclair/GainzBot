@@ -736,12 +736,13 @@ async def get_bot_reply(user_id: str, user_message: str) -> tuple:
 
     system = build_system_prompt(profile, user_message) + usage_note
 
-    response = client.messages.create(
+    loop = asyncio.get_event_loop()
+    response = await loop.run_in_executor(None, lambda: client.messages.create(
         model=model,
         max_tokens=600,
         system=system,
         messages=history,
-    )
+    ))
 
     raw_reply = response.content[0].text
 
@@ -1143,7 +1144,14 @@ async def process_user_messages(user_id: str, app):
                 await reschedule_user(user_id, updated_profile, app)
 
         except Exception as e:
-            logger.error(f"Worker error for {user_id}: {e}")
+            logger.error(f"Worker error for {user_id}: {e}", exc_info=True)
+            try:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="something went wrong on my end - try again in a sec"
+                )
+            except Exception:
+                pass
         finally:
             queue.task_done()
 
