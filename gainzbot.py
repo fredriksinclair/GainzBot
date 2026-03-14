@@ -365,8 +365,7 @@ PROFILE_UPDATE:{"goal":"new goal"}
 If they update race info: PROFILE_UPDATE:{"race":{"name":"...","date":"...","target_time":"...","distance_km":42}}
 
 ━━━ WEEKLY SUMMARY ━━━
-When triggered, recap the week: sessions done, total km if running, streak, missed days.
-Set tone for the week ahead. Reference race countdown if applicable.
+When triggered, send ONE single message — not multiple bubbles. Use internal newlines to structure it. Cover: sessions done, total km, streak, missed days, tone for the week ahead, race countdown if applicable. Keep it tight — 6-8 lines max.
 
 ━━━ CURRENT USER INFO ━━━
 Injected below.
@@ -830,11 +829,11 @@ async def send_weekly_summary(context: ContextTypes.DEFAULT_TYPE):
         days_left = days_until_race(profile)
         race_note = f" race is in {days_left} days." if days_left > 0 else ""
         prompt = (
-            f"[SYSTEM: monday morning weekly summary.{race_note} "
+            f"[SYSTEM: sunday evening weekly summary.{race_note} "
             f"here are their stats: {format_full_stats(profile)}. "
-            f"react in your style — dry, direct, call out misses flatly, wins get a deadpan acknowledgment. "
-            f"if they have a race coming suggest whether to increase or maintain mileage this week. "
-            f"use newlines between messages.]"
+            f"send ONE single message, not multiple bubbles — use internal newlines to structure it. "
+            f"cover sessions, km, streak, missed days, and what to focus on this week. "
+            f"if race coming, mention whether to increase or hold mileage. keep it tight.]"
         )
         reply, _ = await get_bot_reply(user_id, prompt)
         try:
@@ -870,8 +869,8 @@ async def restore_all_jobs(app: Application):
             await reschedule_user(user_id, profile, app)
     app.job_queue.run_daily(
         send_weekly_summary,
-        time=time(hour=8, minute=0),
-        days=(0,),
+        time=time(hour=19, minute=0, tzinfo=USER_TZ),
+        days=(6,),
         name="weekly_summary",
         data={},
     )
@@ -983,6 +982,18 @@ async def process_user_messages(user_id: str, app):
                 if weather:
                     weather_prefix = f"[SYSTEM CONTEXT — do NOT repeat this back: weather in {city} right now is {weather}. use this naturally only when relevant.]\n"
             text = weather_prefix + text
+
+            # Natural language weekly summary trigger
+            summary_phrases = [
+                "weekly summary", "week summary", "how was my week", "my week",
+                "recap", "week recap", "how did i do this week", "this week's stats",
+                "show me my stats", "how's my training", "training summary"
+            ]
+            raw_text = update.message.text.lower()
+            if any(p in raw_text for p in summary_phrases):
+                days_left = days_until_race(profile)
+                race_context = f" race in {days_left} days." if days_left > 0 else ""
+                text = f"[SYSTEM: user asked for their weekly summary.{race_context} send ONE single message with internal newlines — not multiple bubbles. cover sessions, km, streak, missed days, focus for next week. tight and direct.]"
 
             # Show typing immediately — before Claude even starts
             await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
@@ -1851,7 +1862,7 @@ async def test_summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     days_left = days_until_race(profile)
     race_context = f" race in {days_left} days." if days_left > 0 else ""
-    reply, _ = await get_bot_reply(user_id, f"[SYSTEM: weekly summary time.{race_context} recap the week, set tone for next week. one message.]")
+    reply, _ = await get_bot_reply(user_id, f"[SYSTEM: weekly summary time.{race_context} send ONE single message with internal newlines — not multiple bubbles. cover sessions, km, streak, missed days, focus for next week. tight and direct.]")
     await send_with_typing(context.bot, update.effective_chat.id, reply, update.message.reply_text, user_id=user_id)
 
 
