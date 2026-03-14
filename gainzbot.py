@@ -189,7 +189,7 @@ def log_missed(user_id: str):
 
 def get_recent_runs(profile: dict, n: int = 5) -> list:
     sessions = get_stats(profile).get("sessions", [])
-    runs = [s for s in sessions if s.get("type") in ("run","virtualrun","trailrun","ride","virtualride","ebikeride")]
+    runs = [s for s in sessions if s.get("type") in ("run","virtualrun","trailrun","ride","virtualride","ebikeride","crossfit","workout","weighttraining")]
     return sorted(runs, key=lambda x: x["date"], reverse=True)[:n]
 
 def get_weekly_mileage_trend(profile: dict, weeks: int = 4) -> dict:
@@ -233,7 +233,7 @@ def format_full_stats(profile: dict) -> str:
     recent_runs = get_recent_runs(profile, 5)
 
     # This week breakdown
-    this_week_runs = [s for s in this_week if s.get("type") in ("run","virtualrun","trailrun","ride","virtualride","ebikeride")]
+    this_week_runs = [s for s in this_week if s.get("type") in ("run","virtualrun","trailrun","ride","virtualride","ebikeride","crossfit","workout","weighttraining")]
     this_week_gym = [s for s in this_week if s.get("type") == "gym"]
     this_week_km = sum(s.get("distance_km", 0) for s in this_week_runs)
 
@@ -346,7 +346,7 @@ If shoe data injected below:
 - Over 700km → "bro those are cooked, retire them, running on dead shoes is asking for injury"
 - retired: true → they already retired that shoe in Strava, acknowledge it
 
-- You coach running, cycling, and gym/strength. Sessions from all three sync from Strava. Cycling sessions show speed (km/h), runs show pace (min/km). Handle whatever the user brings.
+- You coach running, cycling, gym/strength, and crossfit. Sessions from all sync from Strava automatically. Cycling shows speed (km/h), runs show pace (min/km), gym and crossfit show duration and effort.
 
 ━━━ ONBOARDING ━━━
 New users need to feel the energy immediately - don't be corporate or slow. Be fun, fast, a little unhinged in a good way. One question at a time, react genuinely before moving on.
@@ -459,7 +459,7 @@ def build_system_prompt(profile: dict, user_message: str = "") -> str:
         recent_runs = get_recent_runs(profile, 10)
         mileage = get_weekly_mileage_trend(profile, 4)
         this_week = get_this_week_sessions(profile)
-        this_week_runs = [s for s in this_week if s.get("type") in ("run","virtualrun","trailrun","ride","virtualride","ebikeride")]
+        this_week_runs = [s for s in this_week if s.get("type") in ("run","virtualrun","trailrun","ride","virtualride","ebikeride","crossfit","workout","weighttraining")]
         this_week_km = sum(s.get("distance_km", 0) for s in this_week_runs)
         week_start = (datetime.now(USER_TZ).date() - timedelta(days=datetime.now(USER_TZ).weekday())).strftime("%d %b")
 
@@ -1315,7 +1315,7 @@ async def process_strava_activity(user_id: str, profile: dict, activity_id: int)
 
         # Only process runs
         activity_type = activity.get("type", "").lower()
-        if activity_type not in ("run", "virtualrun", "trailrun", "ride", "virtualride", "ebikeride"):
+        if activity_type not in ("run", "virtualrun", "trailrun", "ride", "virtualride", "ebikeride", "crossfit", "workout", "weighttraining"):
             return
 
         # Sync all shoes from athlete profile
@@ -1345,18 +1345,27 @@ async def process_strava_activity(user_id: str, profile: dict, activity_id: int)
         avg_hr = activity.get("average_heartrate", 0)
         name = activity.get("name", "activity")
         is_ride = activity_type in ("ride", "virtualride", "ebikeride")
+        is_gym = activity_type in ("crossfit", "workout", "weighttraining")
 
-        # Calculate pace (runs) or speed (cycling)
+        # Calculate pace (runs) or speed (cycling) — gym has neither
         pace_str = ""
         if distance_km > 0 and duration_min > 0:
             if is_ride:
                 speed_kmh = round(distance_km / (duration_min / 60), 1)
                 pace_str = f"{speed_kmh}km/h"
-            else:
+            elif not is_gym:
                 pace_sec_per_km = (duration_min * 60) / distance_km
                 pace_min = int(pace_sec_per_km // 60)
                 pace_sec = int(pace_sec_per_km % 60)
                 pace_str = f"{pace_min}:{pace_sec:02d}"
+
+        # Determine stored type
+        if is_ride:
+            stored_type = "ride"
+        elif is_gym:
+            stored_type = "crossfit" if activity_type == "crossfit" else "gym"
+        else:
+            stored_type = "run"
 
         # Log the session
         cadence = activity.get("average_cadence", 0)
@@ -1366,7 +1375,7 @@ async def process_strava_activity(user_id: str, profile: dict, activity_id: int)
 
         run_name = activity.get("name", "")
         session_data = {
-            "type": "ride" if is_ride else "run",
+            "type": stored_type,
             "name": run_name,
             "distance_km": distance_km,
             "duration_min": duration_min,
@@ -1657,7 +1666,7 @@ async def sync_strava_history(user_id: str, profile: dict, pages: int = 3):
 
         for act in all_activities:
             act_type = act.get("type", "").lower()
-            if act_type not in ("run", "virtualrun", "trailrun", "ride", "virtualride", "ebikeride"):
+            if act_type not in ("run", "virtualrun", "trailrun", "ride", "virtualride", "ebikeride", "crossfit", "workout", "weighttraining"):
                 continue
 
             date_str = act.get("start_date_local", "")[:10]
@@ -1970,11 +1979,27 @@ async def reset_me_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     if user_id not in ALLOWED_USERS:
         return
+    # Clear profile from disk
     users = load_users()
     if user_id in users:
         del users[user_id]
         save_users(users)
-    await update.message.reply_text("profile wiped. say hi to start fresh 👋")
+    # Clear in-memory daily counter
+    if user_id in user_daily_messages:
+        del user_daily_messages[user_id]
+    # Clear send tasks
+    if user_id in user_send_tasks:
+        task = user_send_tasks.pop(user_id)
+        if not task.done():
+            task.cancel()
+    # Cancel worker so it doesn't process stale queue
+    if user_id in user_workers:
+        worker = user_workers.pop(user_id)
+        if not worker.done():
+            worker.cancel()
+    if user_id in user_queues:
+        del user_queues[user_id]
+    await update.message.reply_text("done - fully wiped. send /start to begin fresh 👋")
 
 
 async def test_hype_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
