@@ -457,7 +457,7 @@ IMPORTANT: after outputting PROFILE_UPDATE the system sends a wrap-up automatica
 
 ━━━ RACE KNOWLEDGE ━━━
 Known race dates (use these, don't guess):
-- Stockholm Marathon 2026: 6 June 2026 (42.2km)
+- Stockholm Marathon 2026: 30 May 2026 (42.2km) - traditionally last Saturday of May
 - Göteborgsvarvet 2026: 16 May 2026 (21.1km)
 - Lidingöloppet 2026: September 2026 (30km trail)
 - Berlin Marathon 2026: 27 September 2026
@@ -475,6 +475,7 @@ When users mention specific races, react like you actually know them:
 - Paris, Chicago, Tokyo, NYC - world majors, treat them with respect
 - Local Swedish races (Lidingöloppet, Göteborgsvarvet etc) - acknowledge you know them
 For any race you don't recognise - ask about it with genuine curiosity
+IMPORTANT: if user corrects a race date you stated - ALWAYS accept it immediately. Say "my bad, noted" and move on. Never argue about race dates. User knows their own race.
 Don't explain every feature upfront. Reveal them when relevant:
 - First time they ask about a run → mention Strava sync if not connected yet
 - First time they mention gym → explain you can log it: "just tell me what you did"
@@ -1025,14 +1026,25 @@ async def send_scheduled_hype(context: ContextTypes.DEFAULT_TYPE):
         if weather:
             weather_context = f" current weather: {weather}."
 
-    if hour < 10:
-        trigger = f"morning of a training day.{race_context}{weather_context} send a short punchy morning hype. if weather is bad mention it but still push them."
-    elif hour < 15:
-        trigger = f"midday on a training day.{race_context}{weather_context} check if they trained yet."
-    else:
-        trigger = f"evening on a training day.{race_context}{weather_context} last chance, don't let them skip."
+    # Build rich context for hype message
+    stats = profile.get("stats", {})
+    streak = stats.get("current_streak", 0)
+    streak_context = f" current streak is {streak} days." if streak > 1 else ""
+    recent = get_recent_runs(profile, 1)
+    last_run_context = f" last session was {recent[0].get('date', '')} - {recent[0].get('distance_km', '')}km at {recent[0].get('pace_per_km', '')}." if recent else ""
 
-    reply, updated = await get_bot_reply(user_id, f"[SYSTEM: {trigger} short and punchy like a real text.]")
+    if hour < 10:
+        trigger = (f"morning hype message - training day. {race_context}{weather_context}{streak_context}{last_run_context} "
+                   f"send 2-3 short punchy bubbles. get them out the door. reference their goal or race if close. "
+                   f"if weather is rough acknowledge it but push through. bro energy, specific, not generic.")
+    elif hour < 15:
+        trigger = (f"midday check-in - training day. {race_context}{weather_context}{streak_context} "
+                   f"check if they trained yet. light pressure, not aggressive. 1-2 bubbles.")
+    else:
+        trigger = (f"evening last chance message - training day. {race_context}{weather_context}{streak_context} "
+                   f"this is their last chance to train today. make it feel urgent but not guilt-trippy. 2 bubbles max.")
+
+    reply, updated = await get_bot_reply(user_id, f"[SYSTEM: {trigger}]")
     if updated:
         await reschedule_user(user_id, updated, context.application)
     try:
@@ -1578,19 +1590,26 @@ async def process_strava_activity(user_id: str, profile: dict, activity_id: int)
                     break
 
         # Build a message for Claude to react to
-        details = f"{distance_km}km"
-        if pace_str:
-            details += f" at {pace_str}/km"
+        details = f"{distance_km}km" if distance_km else ""
+        if pace_str and not is_gym:
+            details += f" at {pace_str}"
         if duration_min:
             details += f" in {duration_min}min"
         if avg_hr:
             details += f", avg HR {int(avg_hr)}"
+        if elevation:
+            details += f", {round(elevation)}m elevation"
+
+        activity_label = "ride" if is_ride else ("gym session" if is_gym else "run")
+        run_name_str = f' called "{run_name}"' if run_name else ""
 
         trigger = (
-            f"[SYSTEM: user just finished a run via Strava. auto-logged. "
-            f"activity: {details}.{pr_context} "
-            f"react in your style - comment on the pace/distance flatly, "
-            f"compare to their recent runs if relevant. short and punchy.]"
+            f"[SYSTEM: {activity_label}{run_name_str} just synced from Strava. auto-logged. "
+            f"stats: {details}.{pr_context} "
+            f"react with genuine energy - hype them up, reference the actual numbers, "
+            f"compare to their recent sessions if relevant, use their nickname tier. "
+            f"if it's a great run go hard. if it's easy/short still acknowledge it positively. "
+            f"2-3 short punchy bubbles max. bro energy.]"
         )
         reply, _ = await get_bot_reply(user_id, trigger)
 
@@ -2076,7 +2095,7 @@ async def strava_history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_id = str(update.effective_user.id)
     profile = get_user(user_id)
     if not profile or not profile.get("strava_access_token"):
-        await update.message.reply_text("connect Strava first with /strava")
+        await update.message.reply_text("connect Strava first - just say 'connect strava' and i'll send you the link")
         return
     await update.message.reply_text("importing your run history from Strava...")
     # Clear existing sessions so we don't skip anything
@@ -2098,7 +2117,7 @@ async def strava_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     profile = get_user(user_id)
     if not profile or not profile.get("strava_access_token"):
-        await update.message.reply_text("you haven't connected Strava yet - use /strava to link it")
+        await update.message.reply_text("you haven't connected Strava yet - just say 'connect strava' and i'll send the link")
         return
     await update.message.reply_text("syncing your Strava data...")
     await sync_strava_shoes(user_id, profile)
