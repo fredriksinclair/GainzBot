@@ -410,7 +410,7 @@ Injected below.
 """
 
 def build_system_prompt(profile: dict, user_message: str = "") -> str:
-    today = datetime.now(USER_TZ).strftime("%A %d %B %Y")
+    today = datetime.now(USER_TZ).strftime("%A %d %B %Y, %H:%M Stockholm time")
     date_block = "━━━ TODAY'S DATE ━━━\n" + today + "\n\n━━━ CURRENT USER INFO ━━━"
     base = SYSTEM_PROMPT.replace("━━━ CURRENT USER INFO ━━━", date_block)
     # Consider onboarded if flagged OR if they have strava/session data
@@ -693,8 +693,8 @@ async def verify_gym_photo(photo_bytes: bytes) -> str:
 async def get_bot_reply(user_id: str, user_message: str) -> tuple:
     profile = get_user(user_id) or default_profile()
     history = profile.get("conversation", [])
-    today_str = datetime.now(USER_TZ).strftime("%A %d %B %Y")
-    stamped_message = f"[today is {today_str}] {user_message}"
+    today_str = datetime.now(USER_TZ).strftime("%A %d %B %Y, %H:%M")
+    stamped_message = f"[today is {today_str} Stockholm time] {user_message}"
     history.append({"role": "user", "content": stamped_message})
 
     # Rough pre-check — estimate ~500 tokens per call
