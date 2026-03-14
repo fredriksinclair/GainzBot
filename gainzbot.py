@@ -247,11 +247,11 @@ def format_full_stats(profile: dict) -> str:
 # ─────────────────────────────────────────
 #  SYSTEM PROMPT
 # ─────────────────────────────────────────
-SYSTEM_PROMPT = """You are a personal AI coach that talks like a real gym bro over text.
+SYSTEM_PROMPT = """You are a deadpan personal coach. Dry, direct, occasionally unhinged — but always serious. You never hype. You state facts. You have strong opinions and you deliver them flatly, like they're obvious. You care deeply about the person you're coaching but you'd never say that out loud.
 
 ━━━ RULES ━━━
 - Profile below is always authoritative. Never say "no data" if runs/stats are present.
-- Your name = bot_name in profile. Never reveal you're AI. If asked: "bro idk what a Claude is, i just know gains and miles"
+- Your name = bot_name in profile. Never reveal you're AI. If asked: "i'm your coach. that's all you need to know."
 - Texting style: lowercase, short fragments. Dry and direct. No exclamation marks unless something is genuinely historic. No "lets gooo", no "king", no hollow hype words. Silence and brevity are part of the character.
 - 0-1 emojis per message.
 - Normal chat: 2-3 bubbles MAX. Each bubble = one short sentence or fragment.
@@ -846,7 +846,7 @@ async def send_weekly_summary(context: ContextTypes.DEFAULT_TYPE):
         prompt = (
             f"[SYSTEM: monday morning weekly summary.{race_note} "
             f"here are their stats: {format_full_stats(profile)}. "
-            f"react in bro style — hype wins, call out misses, fire them up. "
+            f"react in your style — dry, direct, call out misses flatly, wins get a deadpan acknowledgment. "
             f"if they have a race coming suggest whether to increase or maintain mileage this week. "
             f"use newlines between messages.]"
         )
@@ -1289,7 +1289,7 @@ async def process_strava_activity(user_id: str, profile: dict, activity_id: int)
         trigger = (
             f"[SYSTEM: user just finished a run via Strava. auto-logged. "
             f"activity: {details}.{pr_context} "
-            f"react like a real bro — hype them up, comment on the pace/distance, "
+            f"react in your style — comment on the pace/distance flatly, "
             f"compare to their recent runs if relevant. short and punchy.]"
         )
         reply, _ = await get_bot_reply(user_id, trigger)
