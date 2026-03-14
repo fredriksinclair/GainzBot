@@ -207,30 +207,64 @@ def days_until_race(profile: dict) -> int:
     except:
         return -1
 
+def get_this_week_sessions(profile: dict) -> list:
+    """Return all sessions from the current Mon-Sun week."""
+    today = datetime.now(USER_TZ).date()
+    week_start = today - timedelta(days=today.weekday())  # Monday
+    sessions = get_stats(profile).get("sessions", [])
+    this_week = []
+    for s in sessions:
+        try:
+            d = datetime.strptime(s["date"], "%Y-%m-%d").date()
+            if week_start <= d <= today:
+                this_week.append(s)
+        except:
+            pass
+    return sorted(this_week, key=lambda x: x["date"])
+
+
 def format_full_stats(profile: dict) -> str:
     stats = get_stats(profile)
     name = profile.get("name", "bro")
-    recent_runs = get_recent_runs(profile, 3)
     mileage = get_weekly_mileage_trend(profile, 4)
     race = profile.get("race", {})
     days_left = days_until_race(profile)
+    this_week = get_this_week_sessions(profile)
+    recent_runs = get_recent_runs(profile, 5)
+
+    # This week breakdown
+    this_week_runs = [s for s in this_week if s.get("type") == "run"]
+    this_week_gym = [s for s in this_week if s.get("type") == "gym"]
+    this_week_km = sum(s.get("distance_km", 0) for s in this_week_runs)
+
+    today = datetime.now(USER_TZ).date()
+    week_start = today - timedelta(days=today.weekday())
 
     out = [f"stats for {name}:"]
-    out.append(f"total sessions: {stats['total_sessions']}")
+    out.append(f"week of {week_start.strftime('%d %b')}: {len(this_week_runs)} run(s), {len(this_week_gym)} gym session(s), {round(this_week_km,1)}km running")
+    if this_week:
+        for s in this_week:
+            parts = [s["date"], s.get("type","?")]
+            if s.get("distance_km"): parts.append(f"{s['distance_km']}km")
+            if s.get("pace_per_km"): parts.append(f"pace {s['pace_per_km']}/km")
+            if s.get("effort"): parts.append(f"effort {s['effort']}/10")
+            out.append("  " + " | ".join(parts))
+    else:
+        out.append("  no sessions logged this week yet")
+
+    out.append(f"total sessions all time: {stats['total_sessions']}")
     out.append(f"current streak: {stats['current_streak']} days")
     out.append(f"longest streak: {stats['longest_streak']} days")
-    out.append(f"missed days: {stats['missed_days']}")
 
     if mileage:
-        out.append(f"weekly mileage (last {len(mileage)} weeks): " + ", ".join([f"{w}: {round(km,1)}km" for w, km in mileage.items()]))
+        out.append(f"weekly km trend (last {len(mileage)} weeks): " + ", ".join([f"{w}: {round(km,1)}km" for w, km in mileage.items()]))
 
     if recent_runs:
-        out.append("recent runs:")
+        out.append("last 5 runs:")
         for r in recent_runs:
             parts = [r["date"]]
             if r.get("distance_km"): parts.append(f"{r['distance_km']}km")
             if r.get("pace_per_km"): parts.append(f"pace {r['pace_per_km']}/km")
-            if r.get("duration_min"): parts.append(f"{r['duration_min']}min")
             if r.get("effort"): parts.append(f"effort {r['effort']}/10")
             out.append("  " + " | ".join(parts))
 
@@ -384,6 +418,10 @@ def build_system_prompt(profile: dict, user_message: str = "") -> str:
         days_left = days_until_race(profile)
         recent_runs = get_recent_runs(profile, 10)
         mileage = get_weekly_mileage_trend(profile, 4)
+        this_week = get_this_week_sessions(profile)
+        this_week_runs = [s for s in this_week if s.get("type") == "run"]
+        this_week_km = sum(s.get("distance_km", 0) for s in this_week_runs)
+        week_start = (datetime.now(USER_TZ).date() - timedelta(days=datetime.now(USER_TZ).weekday())).strftime("%d %b")
 
         base += f"""
 ━━━ THIS USER ━━━
@@ -392,11 +430,10 @@ User name: {profile.get('name', '?')}
 Goal: {profile.get('goal', '?')}
 Weak spot: {profile.get('weakspot', '?')}
 Training days: {days_str}
-Hype times: {', '.join(profile.get('hype_times', []))}
 Total sessions: {stats['total_sessions']}
 Current streak: {stats['current_streak']} days
 Longest streak: {stats['longest_streak']} days
-Missed days: {stats['missed_days']}
+This week (w/c {week_start}): {len(this_week_runs)} run(s), {round(this_week_km,1)}km{f' — {", ".join([s["date"] + " " + str(s.get("distance_km","?")) + "km" for s in this_week_runs])}' if this_week_runs else ' — nothing yet'}
 """
         if mileage:
             base += f"Weekly mileage trend: {', '.join([f'{w}: {round(km,1)}km' for w,km in mileage.items()])}\n"
