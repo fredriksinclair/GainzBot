@@ -192,6 +192,26 @@ def get_recent_runs(profile: dict, n: int = 5) -> list:
     runs = [s for s in sessions if s.get("type") in ("run","virtualrun","trailrun","ride","virtualride","ebikeride","crossfit","workout","weighttraining")]
     return sorted(runs, key=lambda x: x["date"], reverse=True)[:n]
 
+def get_fastest_runs(profile: dict, days: int = 30, n: int = 3) -> list:
+    """Return the n fastest runs by pace in the last X days."""
+    sessions = get_stats(profile).get("sessions", [])
+    cutoff = (datetime.now(USER_TZ).date() - timedelta(days=days)).strftime("%Y-%m-%d")
+    runs = [s for s in sessions
+            if s.get("type") in ("run","virtualrun","trailrun")
+            and s.get("pace_per_km")
+            and s.get("date", "") >= cutoff
+            and s.get("distance_km", 0) >= 1.0]  # ignore very short efforts
+
+    def pace_to_seconds(pace_str):
+        try:
+            parts = pace_str.split(":")
+            return int(parts[0]) * 60 + int(parts[1])
+        except:
+            return 9999
+
+    return sorted(runs, key=lambda x: pace_to_seconds(x.get("pace_per_km", "99:99")))[:n]
+
+
 def get_weekly_mileage_trend(profile: dict, weeks: int = 4) -> dict:
     mileage = get_stats(profile).get("weekly_mileage", {})
     sorted_weeks = sorted(mileage.keys(), reverse=True)[:weeks]
@@ -234,7 +254,7 @@ def format_full_stats(profile: dict) -> str:
 
     # This week breakdown
     this_week_runs = [s for s in this_week if s.get("type") in ("run","virtualrun","trailrun","ride","virtualride","ebikeride","crossfit","workout","weighttraining")]
-    this_week_gym = [s for s in this_week if s.get("type") == "gym"]
+    this_week_gym = [s for s in this_week if s.get("type") not in ("run","virtualrun","trailrun","ride","virtualride","ebikeride")]
     this_week_km = sum(s.get("distance_km", 0) for s in this_week_runs)
 
     today = datetime.now(USER_TZ).date()
@@ -341,11 +361,12 @@ Each message may include a live weather prefix - use it naturally only when rele
 If user mentions ANY city - "Stockholm", "i'm in London", "I live in Paris" - IMMEDIATELY save: PROFILE_UPDATE:{"city":"Stockholm"}
 
 ━━━ SHOES ━━━
-Strava gives us: shoe name and total km. That's it - no brand or model unless it's in the name.
-If shoe data injected below:
-- Approaching 550km → mention it casually, "those are getting up there in miles"
-- Over 700km → "bro those are cooked, retire them, running on dead shoes is asking for injury"
-- retired: true → they already retired that shoe in Strava, acknowledge it
+Only relevant for runners. Strava gives us shoe name and total km.
+Only mention shoes when: user asks about them, Strava just synced a run, or they're approaching retirement mileage.
+Never mention shoes during onboarding or to non-runners.
+- Approaching 550km → mention casually when relevant: "those are getting up there in miles"
+- Over 700km → "those are cooked, retire them - running on dead shoes is asking for injury"
+- retired: true → acknowledge if they bring it up
 
 - You coach running, cycling, gym/strength, and crossfit. Sessions from all sync from Strava automatically. Cycling shows speed (km/h), runs show pace (min/km), gym and crossfit show duration and effort.
 
@@ -401,6 +422,11 @@ Step 5 - Weak spot, go real: "one last thing - real talk, what's your biggest we
 
 Once complete: PROFILE_UPDATE:{"bot_name":"...","name":"...","goal":"...","weakspot":"...","workout_days":[0,1,2],"hype_times":["07:30","17:00"]}
 Day numbers: Mon=0 Tue=1 Wed=2 Thu=3 Fri=4 Sat=5 Sun=6
+
+CRITICAL - after outputting PROFILE_UPDATE at the end of onboarding, ALWAYS follow up immediately with an energetic message that transitions into actual coaching. Don't go silent. Examples:
+- "aight [name] we're locked in. i'll check in on training days and send you a weekly recap every sunday. let's get to work - you training today?"
+- "setup done. now the real work starts - what does your week look like for training?"
+- "we're good to go. i'll be watching your Strava and keeping you honest. what's the first session this week?"
 If race mentioned: also PROFILE_UPDATE:{"race":{"name":"...","date":"YYYY-MM-DD","target_time":"H:MM:SS","distance_km":42}}
 
 ━━━ RACE KNOWLEDGE ━━━
@@ -498,6 +524,7 @@ def build_system_prompt(profile: dict, user_message: str = "") -> str:
         days_left = days_until_race(profile)
         recent_runs = get_recent_runs(profile, 10)
         mileage = get_weekly_mileage_trend(profile, 4)
+        fastest_runs = get_fastest_runs(profile, days=30, n=3)
         this_week = get_this_week_sessions(profile)
         this_week_runs = [s for s in this_week if s.get("type") in ("run","virtualrun","trailrun","ride","virtualride","ebikeride","crossfit","workout","weighttraining")]
         this_week_km = sum(s.get("distance_km", 0) for s in this_week_runs)
@@ -520,10 +547,10 @@ This week (w/c {week_start}): {len(this_week_runs)} run(s), {round(this_week_km,
 
         if recent_runs:
             # Full history for running/coaching queries, just last 3 for casual chat
-            run_kws = ["run","pace","km","last","history","progress","trend","race","training","how was","week","interval","tempo","session","faster","slower"]
+            run_kws = ["run","pace","km","last","history","progress","trend","race","training","how was","week","interval","tempo","session","faster","slower","best","fastest","speed"]
             wants_history = any(kw in user_message.lower() for kw in run_kws)
             runs_to_show = recent_runs if wants_history else recent_runs[:3]
-            base += f"Recent runs ({len(runs_to_show)} shown):\n"
+            base += f"Recent runs ({len(runs_to_show)} shown, sorted newest first):\n"
             for r in runs_to_show:
                 parts = [r["date"]]
                 if r.get("name"): parts.append(f'"{r["name"]}"')
@@ -532,6 +559,13 @@ This week (w/c {week_start}): {len(this_week_runs)} run(s), {round(this_week_km,
                 if r.get("heart_rate"): parts.append(f"HR {r['heart_rate']}")
                 if r.get("effort"): parts.append(f"effort {r['effort']}/10")
                 base += "  " + " | ".join(parts) + "\n"
+
+            if fastest_runs:
+                base += f"Fastest runs last 30 days (sorted by pace, fastest first):\n"
+                for r in fastest_runs:
+                    parts = [r["date"], f"{r.get('distance_km','?')}km", f"pace {r.get('pace_per_km','?')}/km"]
+                    if r.get("effort"): parts.append(f"effort {r['effort']}/10")
+                    base += "  " + " | ".join(parts) + "\n"
         else:
             base += "No runs logged yet.\n"
 
@@ -626,13 +660,15 @@ This week (w/c {week_start}): {len(this_week_runs)} run(s), {round(this_week_km,
         tier_names = {0: "rookie", 1: "grinder", 2: "beast", 3: "legend", 4: "GOAT"}
         base += f"Nickname tier: {tier} ({tier_names[tier]}) - {total} total sessions\n"
 
-        # Shoes
+        # Shoes - only inject for runners with actual sessions
         shoes = profile.get("shoes", [])
-        if shoes:
+        goal = profile.get("goal", "").lower()
+        is_runner = any(kw in goal for kw in ["run", "marathon", "5k", "10k", "half", "race", "km"]) or get_recent_runs(profile, 1)
+        if shoes and is_runner and total > 0:
             base += "Shoes:\n"
             for shoe in shoes:
                 km = shoe.get("km", 0)
-                status = "DEAD 💀 retire immediately" if km > 700 else ("getting worn ⚠️" if km > 550 else "good")
+                status = "DEAD - retire immediately" if km > 700 else ("getting worn" if km > 550 else "good")
                 base += f"  {shoe['name']}: {round(km,0)}km - {status}\n"
 
         # Ghost detection
