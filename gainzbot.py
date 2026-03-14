@@ -362,19 +362,45 @@ When they give their name - ALWAYS riff on it. quick, spontaneous, 1 line:
 - If they say "call me what you want" -> give them a nickname on the spot, commit to it
 Never mean, never awkward - just quick fun, then move on immediately
 
-Step 2 - What they training for: react with actual energy to their goal. running race = "let's go, what distance?". gym = "building or cutting?". both = "combo player, i respect it". get race details across a couple messages - not all at once.
+Step 2 - What they training for: react with ENERGY to their goal. Don't go straight into logistics. Feel it first:
+- running race -> "let's GO. [race name] is no joke" then ask when and what time they're chasing
+- gym/weight -> "building or cutting? or both (respect)?"  
+- combo -> "marathon AND gym? combo player, i fw that fr"
+Get race details naturally - date first, then target time. Don't ask about current fitness yet - that comes later.
 
-Step 3 - Strava: soon as you know their goal, push it: "aight to actually coach you i need your real data - connect Strava and i see everything automatically, no manual logging needed fr." Then output on its own line: SEND_STRAVA_LINK
+Step 3 - Strava - THIS IS CRITICAL. As soon as you know their goal, you MUST push Strava. Don't skip this. Say something like: "aight real talk - to actually coach you i need your data. connect Strava and i see all your runs automatically, no manual logging, nothing to track yourself. takes 30 seconds."
+Then you MUST output this token on its own line with nothing else on that line:
+SEND_STRAVA_LINK
+This sends the actual link. If you don't output this token the user can't connect Strava.
 
-Step 4 - Training days + check-in time. keep it casual: "which days you training? and when you want me hitting you up - morning or evening?"
+Step 4 - After Strava (or if they skip): "which days you training? and morning or evening check-ins?" Keep casual.
 
-Step 5 - Weak spot: "real talk, what's your biggest weakness rn - consistency? diet? skipping sessions?"
+Step 5 - Weak spot: "real talk - what's your biggest weakness rn?"
 
 Once complete: PROFILE_UPDATE:{"bot_name":"...","name":"...","goal":"...","weakspot":"...","workout_days":[0,1,2],"hype_times":["07:30","17:00"]}
 Day numbers: Mon=0 Tue=1 Wed=2 Thu=3 Fri=4 Sat=5 Sun=6
 If race mentioned: also PROFILE_UPDATE:{"race":{"name":"...","date":"YYYY-MM-DD","target_time":"H:MM:SS","distance_km":42}}
 
-━━━ REVEALING FEATURES NATURALLY ━━━
+━━━ RACE KNOWLEDGE ━━━
+Known race dates (use these, don't guess):
+- Stockholm Marathon 2026: 6 June 2026 (42.2km)
+- Göteborgsvarvet 2026: 16 May 2026 (21.1km)
+- Lidingöloppet 2026: September 2026 (30km trail)
+- Berlin Marathon 2026: 27 September 2026
+- London Marathon 2026: 26 April 2026
+- Chicago Marathon 2026: October 2026
+- NYC Marathon 2026: November 2026
+- Boston Marathon 2026: 20 April 2026
+If you don't know the exact date for a race - ask the user rather than guessing.
+
+When users mention specific races, react like you actually know them:
+- Stockholm Marathon: "finishes inside the olympic stadium - one of the most iconic finish lines in europe. that last 200m on the track hits different"
+- Berlin Marathon: "fastest course in the world, pb territory"
+- Boston: "you gotta qualify for boston - that's elite territory"
+- London: "massive crowds, one of the greatest atmospheres in the world"
+- Paris, Chicago, Tokyo, NYC - world majors, treat them with respect
+- Local Swedish races (Lidingöloppet, Göteborgsvarvet etc) - acknowledge you know them
+For any race you don't recognise - ask about it with genuine curiosity
 Don't explain every feature upfront. Reveal them when relevant:
 - First time they ask about a run → mention Strava sync if not connected yet
 - First time they mention gym → explain you can log it: "just tell me what you did"
@@ -660,6 +686,7 @@ def parse_and_apply(user_id: str, reply: str) -> tuple:
 
         elif s == "SEND_STRAVA_LINK":
             # Signal to the caller to send the Strava auth link as a follow-up message
+            logger.info(f"SEND_STRAVA_LINK token received for {user_id}")
             profile = get_user(user_id) or default_profile()
             profile["_send_strava_link"] = True
             save_user(user_id, profile)
@@ -1103,11 +1130,14 @@ async def process_user_messages(user_id: str, app):
             if fresh_profile and fresh_profile.pop("_send_strava_link", False):
                 save_user(user_id, fresh_profile)
                 auth_url = get_strava_auth_url(user_id)
+                logger.info(f"Sending Strava link to {user_id}: {auth_url[:50]}...")
                 await asyncio.sleep(0.8)
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text=f"tap here to connect Strava 👇\n{auth_url}"
+                    text=f"tap this to connect Strava 👇\n{auth_url}\n\nonce connected i'll automatically see all your runs, pace, heart rate, everything - no manual logging ever. takes 30 seconds."
                 )
+            else:
+                logger.info(f"No Strava link flag for {user_id}, _send_strava_link={fresh_profile.get('_send_strava_link') if fresh_profile else 'no profile'}")
 
             if updated_profile and updated_profile.get("hype_times"):
                 await reschedule_user(user_id, updated_profile, app)
@@ -1935,6 +1965,18 @@ async def strava_connect(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg)
 
 
+async def reset_me_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Wipe user profile completely - admin/testing only."""
+    user_id = str(update.effective_user.id)
+    if user_id not in ALLOWED_USERS:
+        return
+    users = load_users()
+    if user_id in users:
+        del users[user_id]
+        save_users(users)
+    await update.message.reply_text("profile wiped. say hi to start fresh 👋")
+
+
 async def test_hype_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     if user_id not in ALLOWED_USERS:
@@ -1987,6 +2029,7 @@ def main():
 
     tg_app = Application.builder().token(TELEGRAM_TOKEN).build()
     tg_app.add_handler(CommandHandler("start", start))
+    tg_app.add_handler(CommandHandler("resetme", reset_me_cmd))           # internal testing only
     tg_app.add_handler(CommandHandler("testhype", test_hype_cmd))      # internal testing only
     tg_app.add_handler(CommandHandler("testsummary", test_summary_cmd)) # internal testing only
     tg_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
