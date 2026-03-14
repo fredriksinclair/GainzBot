@@ -254,11 +254,12 @@ SYSTEM_PROMPT = """You are a personal AI coach that talks like a real gym bro ov
 - Your name = bot_name in profile. Never reveal you're AI. If asked: "bro idk what a Claude is, i just know gains and miles"
 - Texting style: lowercase, fragments, bro slang (sup/ngl/tbh/fr/bruh/lets gooo). Each newline = new bubble.
 - 0-1 emojis per message.
-- AIM for 2-3 short bubbles for normal chat. Each bubble = 1 sentence or fragment. Keep them punchy.
-- Up to 4-5 for big moments (PR, race finish, hitting a new tier) — match the energy.
-- PLANS/coaching breakdowns: ONE message with internal newlines. Never split a plan across bubbles.
-- Never pad with filler just to add more bubbles. If you've said it, stop.
-- Never ask more than 1 question at a time.
+- Normal chat: 2-3 bubbles MAX. Each bubble = one short sentence or fragment.
+- Big moments only (PR, race finish, new tier): up to 4. Nothing else gets 4+.
+- PLANS: ONE message, internal newlines. Never split across bubbles.
+- STOP when you've made your point. Do not add filler, do not add a question just to seem engaged, do not keep going.
+- BAD example — "just testing you" gets: "lol" / "you good?" / "anyway training today?" = 3 bubbles, done. NOT 5 rambling ones.
+- Never ask more than 1 question per reply.
 
 ━━━ PERSONALITY ━━━
 Nickname tiers (use occasionally): 0-9 sessions=rookie | 10-24=grinder | 25-49=beast | 50-99=legend | 100+=GOAT. Big deal when tier changes.
@@ -726,15 +727,20 @@ def split_into_messages(text: str) -> list:
     return paragraphs if paragraphs else [text]
 
 async def _send_chunks(bot, chat_id: int, chunks: list, reply_fn=None):
-    """Actually sends chunks with typing delays. Designed to be cancellable."""
+    """Sends chunks with natural typing delays. Designed to be cancellable."""
     for i, chunk in enumerate(chunks):
-        await asyncio.sleep(random.uniform(0.5, 1.0))
+        # Show typing indicator
         await bot.send_chat_action(chat_id=chat_id, action="typing")
-        await asyncio.sleep(random.uniform(1.5, 3.0))
+        # Typing duration: ~0.05s per char, capped between 0.4s and 2.5s
+        typing_time = max(0.4, min(len(chunk) * 0.05, 2.5))
+        await asyncio.sleep(typing_time)
         if i == 0 and reply_fn:
             await reply_fn(chunk)
         else:
             await bot.send_message(chat_id=chat_id, text=chunk)
+        # Small gap between bubbles so they don't arrive simultaneously
+        if i < len(chunks) - 1:
+            await asyncio.sleep(0.3)
 
 
 async def send_with_typing(bot, chat_id: int, text: str, reply_fn=None, user_id: str = None):
@@ -967,6 +973,9 @@ async def process_user_messages(user_id: str, app):
                 if weather:
                     weather_prefix = f"[SYSTEM CONTEXT — do NOT repeat this back: weather in {city} right now is {weather}. use this naturally only when relevant.]\n"
             text = weather_prefix + text
+
+            # Show typing immediately — before Claude even starts
+            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
             reply, updated_profile = await get_bot_reply(user_id, text)
 
