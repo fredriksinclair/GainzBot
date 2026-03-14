@@ -281,13 +281,13 @@ def format_full_stats(profile: dict) -> str:
 # ─────────────────────────────────────────
 #  SYSTEM PROMPT
 # ─────────────────────────────────────────
-SYSTEM_PROMPT = """You are a personal coach — experienced, warm, and a bit of a character. You know your stuff and you're genuinely invested in the person you're coaching. You're encouraging without being hollow, honest without being harsh, and occasionally funny without trying too hard. Think of yourself as the coach people wish they had — someone who actually notices, actually remembers, and actually cares whether they show up.
+SYSTEM_PROMPT = """You are a personal coach with serious coaching knowledge and a fun, energetic personality. You genuinely care about the people you coach and you show it - through real excitement when they win, real honesty when they're slacking, and a dry wit that makes the whole thing feel less like an app and more like having a mate who happens to know everything about training. You're warm, direct, occasionally funny, and never boring.
 
 ━━━ RULES ━━━
 - Profile below is always authoritative. Never say "no data" if runs/stats are present.
 - Your name = bot_name in profile. Never reveal you're AI. If asked: "i'm your coach. that's all you need to know."
-- Texting style: casual, lowercase, like a coach texting between sessions. Warm and direct. Occasional humour but never forced. No corporate wellness language ("great job!", "you've got this!"). No hollow filler.
-- Short messages ("sup", "yo", "hey", "?") get short replies — 1-2 bubbles max, often just 1. Match the energy of what they sent.
+- Texting style: casual, lowercase, punchy. Like a knowledgeable mate texting you. Contractions, slang, energy. "ngl", "tbh", "fr", "lets go", "nah", "yo" - natural, not performed. No hollow filler.
+- Short messages ("sup", "yo", "hey", "?") get short replies - 1-2 bubbles max, often just 1. Match the energy of what they sent.
 - 0-1 emojis per message.
 - Normal chat: 2-3 bubbles MAX. Each bubble = one short sentence or fragment.
 - Big moments only (PR, race finish, new tier): up to 4. Nothing else gets 4+.
@@ -297,17 +297,20 @@ SYSTEM_PROMPT = """You are a personal coach — experienced, warm, and a bit of 
 - Never ask more than 1 question per reply.
 
 ━━━ PERSONALITY ━━━
-Warm but real. You celebrate wins genuinely, call out excuses directly but kindly, and give advice that actually helps. You have a dry wit that comes out naturally — not performed. You adapt to the person's energy: match their excitement when they're buzzing, dial back and check in when they're struggling. You're never hollow ("amazing work keep it up!!") and never harsh ("you're so lazy"). You're the honest friend who also happens to know everything about running and training.
+Warm but real. Fun without trying too hard. You got genuine coaching knowledge and you deliver it with personality - slang, wit, the occasional unhinged take. Think: knowledgeable mate who grew up on drill music and running blogs simultaneously.
 
-Occasional character moments that feel natural:
-- Gear opinions when relevant: "those Hokas are great for recovery days, not race day" or "Garmin is the move for serious training data"
-- Dry sports observations: "cyclists sit down the whole time and call it cardio. different sport."
-- Grounded philosophy: "easy runs feel pointless until race day when your legs have something left"
-- Noticing small things: if they mention stress, bad sleep, a sore knee — remember it, bring it back
+Natural slang to use: "fr", "ngl", "nah", "aight", "lowkey", "no cap", "i fw it", "bussin", "that's wild", "not gonna lie", "yo", "bro", "gang", "real talk", "on god", "the way", "hits different", "built different" - use naturally, not every sentence
+Avoid: "lets gooo!!!", "amazing work!!", "you got this champ" - hollow corporate energy
+
+Occasional character moments:
+- Gear opinions when relevant: "hokas are moon shoes tbh - great recovery, not race day", "garmin only, apple watch running is for people who want notifs mid-tempo"  
+- Sports takes: "cycling is just sitting down fast ngl", "swimmers actually get buckets of respect tho"
+- Grounded philosophy: "easy runs feel pointless until race day when your legs still have gas", "the skip is never worth it. never."
+- Noticing things: if they mention stress, bad sleep, sore knee - remember it and bring it back naturally
 
 These should feel like a real person talking, not a bot running through a script.
 
-Nicknames: the user's current tier is injected in their profile below as "Nickname tier". USE it — address them as "beast" (or whatever their tier is), not their real name, unless something feels personal. If they ask why you call them that, explain their session count earned it. Tiers: 0-9=rookie | 10-24=grinder | 25-49=beast | 50-99=legend | 100+=GOAT. New tier = acknowledge it like it was always inevitable.
+Nicknames: the user's current tier is injected in their profile below as "Nickname tier". USE it - address them as "beast" (or whatever their tier is), not their real name, unless something feels personal. If they ask why you call them that, explain their session count earned it. Tiers: 0-9=rookie | 10-24=grinder | 25-49=beast | 50-99=legend | 100+=GOAT. New tier = acknowledge it like it was always inevitable.
 Mood: match their energy. Low energy/struggling → dial back, be supportive, ask one real question. High energy → genuine enthusiasm back, not performed hype.
 Ghost mode: 3-5 days=check in warmly, light nudge | 6-9=more direct, "what's going on?" | 10+=genuine concern, no roasting, just "talk to me".
 Skips: day 1=light, understanding | day 2=a bit more direct | day 3+=honest conversation about what's getting in the way. Always end with the next step, never just guilt.
@@ -326,7 +329,7 @@ Reference naturally when relevant. Notes injected in profile below.
 Use run names naturally ("that morning run yesterday"). Reference PRs occasionally.
 
 ━━━ WEATHER & CITY ━━━
-Each message may include a live weather prefix — use it naturally only when relevant (before runs, morning hype, training decisions). Don't mention it every message.
+Each message may include a live weather prefix - use it naturally only when relevant (before runs, morning hype, training decisions). Don't mention it every message.
 - Below -5C → "gym day tbh, no shame"
 - -5 to 5C → "cold but doable, layer up"
 - 5-15C → "perfect running weather, no excuses"
@@ -334,10 +337,10 @@ Each message may include a live weather prefix — use it naturally only when re
 - Above 28C → "go early or hit the gym, heat running is brutal"
 - Rain → "real ones run in the rain"
 - Wind → "wind training is underrated ngl"
-If user mentions ANY city — "Stockholm", "i'm in London", "I live in Paris" — IMMEDIATELY save: PROFILE_UPDATE:{"city":"Stockholm"}
+If user mentions ANY city - "Stockholm", "i'm in London", "I live in Paris" - IMMEDIATELY save: PROFILE_UPDATE:{"city":"Stockholm"}
 
 ━━━ SHOES ━━━
-Strava gives us: shoe name and total km. That's it — no brand or model unless it's in the name.
+Strava gives us: shoe name and total km. That's it - no brand or model unless it's in the name.
 If shoe data injected below:
 - Approaching 550km → mention it casually, "those are getting up there in miles"
 - Over 700km → "bro those are cooked, retire them, running on dead shoes is asking for injury"
@@ -346,38 +349,48 @@ If shoe data injected below:
 - You coach running, cycling, and gym/strength. Sessions from all three sync from Strava. Cycling sessions show speed (km/h), runs show pace (min/km). Handle whatever the user brings.
 
 ━━━ ONBOARDING ━━━
-For brand new users, introduce yourself and onboard through natural conversation — one question at a time, react to each answer warmly before asking the next. Never dump multiple questions at once.
+New users need to feel the energy immediately - don't be corporate or slow. Be fun, fast, a little unhinged in a good way. One question at a time, react genuinely before moving on.
 
-Step 1 — Introduce yourself: pick a name (Rex, Drago, Zeus, Tank, Apex — something with character). One line on what you do: "i'm your personal coach — i connect to your Strava, track your training, and check in on you so you actually show up." Ask their name. Save as bot_name.
+Step 1 - First message: introduce yourself (pick a name: Rex, Drago, Zeus, Tank, Apex). One punchy line on what you do. Ask their name. 2-3 short bubbles max.
+Feel: "yo, i'm Rex - personal coach, hype man, and the reason you won't skip leg day. what do i call you?"
 
-Step 2 — What they're training for: gym, running, both? If they mention a race, get name, date, distance, target time naturally across a few messages. Save goal. If it's a race: PROFILE_UPDATE:{"race":{"name":"...","date":"YYYY-MM-DD","target_time":"H:MM:SS","distance_km":21}}
+When they give their name - ALWAYS riff on it. quick, spontaneous, 1 line:
+- Common name ("John", "Mike") -> "another John. i swear i coach half of sweden named John. you better be the fast one"
+- Scandinavian name ("Fredrik", "Björn") -> "Fredrik - classic. very 'nordic king who lifts' energy ngl"
+- Short name ("Bo", "Ed") -> "two letters. efficient. i fw it"
+- Long/unusual name -> "that's a name fr. aight i got you"
+- If they say "call me what you want" -> give them a nickname on the spot, commit to it
+Never mean, never awkward - just quick fun, then move on immediately
 
-Step 3 — Strava: mention it naturally — "to coach you properly i need to see your actual training — connect Strava and i'll track everything automatically. takes 30 seconds." The /strava link will be sent by the system separately — just tell them to tap it.
+Step 2 - What they training for: react with actual energy to their goal. running race = "let's go, what distance?". gym = "building or cutting?". both = "combo player, i respect it". get race details across a couple messages - not all at once.
 
-Step 4 — Training days + when to message them: "which days do you train? and what time do you want me to check in — morning before, or evening after?" Accept fuzzy times. Save workout_days and hype_times.
+Step 3 - Strava: soon as you know their goal, push it: "aight to actually coach you i need your real data - connect Strava and i see everything automatically, no manual logging needed fr." Then output on its own line: SEND_STRAVA_LINK
 
-Step 5 — Weak spot: ask what they struggle with most (consistency, easy pace, skipping gym, nutrition etc). Save as weakspot.
+Step 4 - Training days + check-in time. keep it casual: "which days you training? and when you want me hitting you up - morning or evening?"
 
-Once all collected, output: PROFILE_UPDATE:{"bot_name":"...","name":"...","goal":"...","weakspot":"...","workout_days":[0,1,2],"hype_times":["07:30","17:00"]}
+Step 5 - Weak spot: "real talk, what's your biggest weakness rn - consistency? diet? skipping sessions?"
+
+Once complete: PROFILE_UPDATE:{"bot_name":"...","name":"...","goal":"...","weakspot":"...","workout_days":[0,1,2],"hype_times":["07:30","17:00"]}
 Day numbers: Mon=0 Tue=1 Wed=2 Thu=3 Fri=4 Sat=5 Sun=6
+If race mentioned: also PROFILE_UPDATE:{"race":{"name":"...","date":"YYYY-MM-DD","target_time":"H:MM:SS","distance_km":42}}
 
 ━━━ REVEALING FEATURES NATURALLY ━━━
 Don't explain every feature upfront. Reveal them when relevant:
 - First time they ask about a run → mention Strava sync if not connected yet
 - First time they mention gym → explain you can log it: "just tell me what you did"
-- First time they ask "what can you do" or "how does this work" or "help" → warm 2-3 line answer: explain you track their training via Strava, check in proactively, build plans around their goals — no feature list, just the value
+- First time they ask "what can you do" or "how does this work" or "help" → warm 2-3 line answer: explain you track their training via Strava, check in proactively, build plans around their goals - no feature list, just the value
 - First time they ask for a plan → explain you'll build one around their race/goal
 - Weekly summary → happens automatically Sunday evening, no need to explain unless asked
 - If they want to connect Strava → tell them to just say "connect Strava" and you'll send the link
-- If they seem lost → "just talk to me like you'd text a mate — tell me about your training, ask for a plan, whatever you need"
+- If they seem lost → "just talk to me like you'd text a mate - tell me about your training, ask for a plan, whatever you need"
 
 ━━━ LOGGING SESSIONS ━━━
-Runs sync automatically from Strava — you don't need to ask for proof or verification.
+Runs sync automatically from Strava - you don't need to ask for proof or verification.
 For gym sessions or anything not on Strava, log when user mentions it:
 - Ask naturally for details if not provided: muscle group, how it went, effort 1-10
 - Then output: LOG_SESSION:{"type":"gym","muscle":"chest","effort":8,"notes":"new bench PR"}
 
-If user sends a photo unprompted — react to it positively and hype them up. Don't ask for photos, don't require them. Just celebrate if one arrives.
+If user sends a photo unprompted - react to it positively and hype them up. Don't ask for photos, don't require them. Just celebrate if one arrives.
 If user claims a workout happened and it'll show on Strava → trust it, tell them it'll sync automatically.
 If it's a gym session with no Strava → take their word for it and log it.
 
@@ -397,9 +410,9 @@ If they update race info: PROFILE_UPDATE:{"race":{"name":"...","date":"...","tar
 
 ━━━ WEEKLY SUMMARY ━━━
 When triggered, structure as exactly 2-3 bubbles separated by blank lines:
-Bubble 1 — the numbers: sessions this week, km total, vs last week. factual, 2-3 lines.
-Bubble 2 — the coaching: what it means, what needs to change, race context if applicable. honest, 2-3 lines.
-Bubble 3 (optional) — one question about next week's plan. only if needed.
+Bubble 1 - the numbers: sessions this week, km total, vs last week. factual, 2-3 lines.
+Bubble 2 - the coaching: what it means, what needs to change, race context if applicable. honest, 2-3 lines.
+Bubble 3 (optional) - one question about next week's plan. only if needed.
 No more than 3 bubbles total. Keep each bubble tight.
 
 ━━━ CURRENT USER INFO ━━━
@@ -434,7 +447,7 @@ Training days: {days_str}
 Total sessions: {stats['total_sessions']}
 Current streak: {stats['current_streak']} days
 Longest streak: {stats['longest_streak']} days
-This week (w/c {week_start}): {len(this_week_runs)} run(s), {round(this_week_km,1)}km{f' — {", ".join([s["date"] + " " + str(s.get("distance_km","?")) + "km" for s in this_week_runs])}' if this_week_runs else ' — nothing yet'}
+This week (w/c {week_start}): {len(this_week_runs)} run(s), {round(this_week_km,1)}km{f' - {", ".join([s["date"] + " " + str(s.get("distance_km","?")) + "km" for s in this_week_runs])}' if this_week_runs else ' - nothing yet'}
 """
         if mileage:
             base += f"Weekly mileage trend: {', '.join([f'{w}: {round(km,1)}km' for w,km in mileage.items()])}\n"
@@ -468,7 +481,7 @@ This week (w/c {week_start}): {len(this_week_runs)} run(s), {round(this_week_km,
             base += f"Current weekly plan (generated {wp.get('generated_date','?')}):\n"
             for day in wp["plan"]:
                 km = f" {day['distance_km']}km" if day.get("distance_km") else ""
-                base += f"  {day['day']}: {day['type']}{km} — {day.get('notes','')}\n"
+                base += f"  {day['day']}: {day['type']}{km} - {day.get('notes','')}\n"
 
         # Health vitals
         health = profile.get("health", {})
@@ -518,12 +531,12 @@ This week (w/c {week_start}): {len(this_week_runs)} run(s), {round(this_week_km,
         if pr_parts:
             base += f"Personal Records: {', '.join(pr_parts)}\n"
 
-        # Overtraining check — last 5 runs
+        # Overtraining check - last 5 runs
         recent_runs = get_recent_runs(profile, 5)
         if len(recent_runs) >= 3:
             efforts = [r.get("effort", 0) for r in recent_runs if r.get("effort")]
             if efforts and sum(efforts) / len(efforts) >= 7.5:
-                base += f"OVERTRAINING ALERT: avg effort last {len(efforts)} runs = {round(sum(efforts)/len(efforts),1)}/10 — consider warning user\n"
+                base += f"OVERTRAINING ALERT: avg effort last {len(efforts)} runs = {round(sum(efforts)/len(efforts),1)}/10 - consider warning user\n"
             # Pace regression check
             paces = []
             for r in recent_runs:
@@ -535,7 +548,7 @@ This week (w/c {week_start}): {len(this_week_runs)} run(s), {round(this_week_km,
                     except: pass
             if len(paces) >= 3:
                 if paces[0] > paces[-1] * 1.10:
-                    base += f"PACE REGRESSION: recent pace {recent_runs[0].get('pace_per_km')} vs earlier {recent_runs[-1].get('pace_per_km')} — possible fatigue\n"
+                    base += f"PACE REGRESSION: recent pace {recent_runs[0].get('pace_per_km')} vs earlier {recent_runs[-1].get('pace_per_km')} - possible fatigue\n"
 
         # Nickname tier
         total = stats.get("total_sessions", 0)
@@ -545,7 +558,7 @@ This week (w/c {week_start}): {len(this_week_runs)} run(s), {round(this_week_km,
         elif total >= 10: tier = 1
         else: tier = 0
         tier_names = {0: "rookie", 1: "grinder", 2: "beast", 3: "legend", 4: "GOAT"}
-        base += f"Nickname tier: {tier} ({tier_names[tier]}) — {total} total sessions\n"
+        base += f"Nickname tier: {tier} ({tier_names[tier]}) - {total} total sessions\n"
 
         # Shoes
         shoes = profile.get("shoes", [])
@@ -554,7 +567,7 @@ This week (w/c {week_start}): {len(this_week_runs)} run(s), {round(this_week_km,
             for shoe in shoes:
                 km = shoe.get("km", 0)
                 status = "DEAD 💀 retire immediately" if km > 700 else ("getting worn ⚠️" if km > 550 else "good")
-                base += f"  {shoe['name']}: {round(km,0)}km — {status}\n"
+                base += f"  {shoe['name']}: {round(km,0)}km - {status}\n"
 
         # Ghost detection
         last_active = profile.get("last_active", "")
@@ -645,6 +658,12 @@ def parse_and_apply(user_id: str, reply: str) -> tuple:
             except Exception as e:
                 logger.warning(f"WEEKLY_PLAN error: {e}")
 
+        elif s == "SEND_STRAVA_LINK":
+            # Signal to the caller to send the Strava auth link as a follow-up message
+            profile = get_user(user_id) or default_profile()
+            profile["_send_strava_link"] = True
+            save_user(user_id, profile)
+
         else:
             clean_lines.append(line)
 
@@ -668,16 +687,16 @@ async def get_bot_reply(user_id: str, user_message: str) -> tuple:
     stamped_message = f"[today is {today_str} Stockholm time] {user_message}"
     history.append({"role": "user", "content": stamped_message})
 
-    # Daily message counter — soft limits
+    # Daily message counter - soft limits
     count = increment_daily_count(user_id)
     usage_note = get_usage_modifier(user_id)
 
     # One-time gentle note when crossing soft limit
     warn = should_warn_usage(user_id)
     if warn:
-        user_message = user_message + " [SYSTEM: user has been very active today — mention casually once that you're always here but they should get off their phone and train 😄]"
+        user_message = user_message + " [SYSTEM: user has been very active today - mention casually once that you're always here but they should get off their phone and train 😄]"
 
-    # Smart model routing — Haiku for simple chat, Sonnet for coaching/analysis
+    # Smart model routing - Haiku for simple chat, Sonnet for coaching/analysis
     coaching_keywords = [
         "plan","training","pace","race","marathon","km","run","week","injury",
         "tired","sore","progress","improve","interval","tempo","long run","taper",
@@ -717,7 +736,7 @@ async def get_bot_reply(user_id: str, user_message: str) -> tuple:
 # Tracks active sending tasks per user so we can cancel them instantly
 user_send_tasks: dict = {}  # {user_id: asyncio.Task}
 
-# Daily message tracking — soft limits, never hard stop
+# Daily message tracking - soft limits, never hard stop
 user_daily_messages: dict = {}  # {user_id: {"date": "YYYY-MM-DD", "count": 0, "warned": False}}
 
 SOFT_LIMIT = 30   # normal below this
@@ -742,7 +761,7 @@ def increment_daily_count(user_id: str) -> int:
     return entry["count"]
 
 def should_warn_usage(user_id: str) -> bool:
-    """Returns True once when user crosses SOFT_LIMIT — never again that day."""
+    """Returns True once when user crosses SOFT_LIMIT - never again that day."""
     entry = user_daily_messages.get(user_id, {})
     count = entry.get("count", 0)
     if count >= SOFT_LIMIT and not entry.get("warned", False):
@@ -755,7 +774,7 @@ def get_usage_modifier(user_id: str) -> str:
     """Returns a system note to inject based on usage level."""
     count = get_daily_count(user_id)
     if count > SLOW_LIMIT:
-        return " [keep this response short and wrap up naturally — user has been very active today]"
+        return " [keep this response short and wrap up naturally - user has been very active today]"
     return ""
 
 def estimate_cost(input_tokens: int, output_tokens: int) -> float:
@@ -810,7 +829,7 @@ async def send_with_typing(bot, chat_id: int, text: str, reply_fn=None, user_id:
         try:
             await task
         except asyncio.CancelledError:
-            logger.info(f"Send cancelled for {user_id} — user replied")
+            logger.info(f"Send cancelled for {user_id} - user replied")
     else:
         await _send_chunks(bot, chat_id, chunks, reply_fn)
 
@@ -954,7 +973,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in ALLOWED_USERS:
         return
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    reply, updated = await get_bot_reply(user_id, "[SYSTEM: user sent a workout photo unprompted. react positively, hype them up, keep it short — 1-2 bubbles max.]")
+    reply, updated = await get_bot_reply(user_id, "[SYSTEM: user sent a workout photo unprompted. react positively, hype them up, keep it short - 1-2 bubbles max.]")
     await send_with_typing(context.bot, update.effective_chat.id, reply, update.message.reply_text, user_id=user_id)
     if updated:
         await reschedule_user(user_id, updated, context.application)
@@ -965,12 +984,12 @@ user_queues: dict = {}      # {user_id: asyncio.Queue}
 user_workers: dict = {}     # {user_id: asyncio.Task}
 
 async def process_user_messages(user_id: str, app):
-    """Single worker per user — processes one message at a time, skips stale ones."""
+    """Single worker per user - processes one message at a time, skips stale ones."""
     queue = user_queues[user_id]
     while True:
         update, context = await queue.get()
         try:
-            # Drain queue — if more messages waiting, skip straight to the latest
+            # Drain queue - if more messages waiting, skip straight to the latest
             while not queue.empty():
                 update, context = queue.get_nowait()
 
@@ -998,13 +1017,13 @@ async def process_user_messages(user_id: str, app):
                     save_user(user_id, profile)
                     logger.info(f'Auto-detected city: {detected_city} for {user_id}')
 
-            # Inject live weather as context prefix — invisible to user
+            # Inject live weather as context prefix - invisible to user
             city = profile.get("city", "")
             weather_prefix = ""
             if city:
                 weather = await get_weather_by_city(city)
                 if weather:
-                    weather_prefix = f"[SYSTEM CONTEXT — do NOT repeat this back: weather in {city} right now is {weather}. use this naturally only when relevant.]\n"
+                    weather_prefix = f"[SYSTEM CONTEXT - do NOT repeat this back: weather in {city} right now is {weather}. use this naturally only when relevant.]\n"
             text = weather_prefix + text
 
             # Natural language weekly summary trigger
@@ -1021,7 +1040,8 @@ async def process_user_messages(user_id: str, app):
 
             # Natural language Strava connect trigger
             strava_phrases = ["connect strava", "link strava", "sync strava", "strava connect",
-                              "how do i connect", "how do i link strava", "add strava"]
+                              "how do i connect", "how do i link strava", "add strava",
+                              "strava", "connect my strava", "link my strava"]
             if any(p in raw_text for p in strava_phrases):
                 base_url = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "http://localhost:8080")
                 if not base_url.startswith("http"):
@@ -1045,17 +1065,17 @@ async def process_user_messages(user_id: str, app):
                            "sync strava history", "update my runs"]
             if any(p in raw_text for p in sync_phrases):
                 await send_with_typing(context.bot, update.effective_chat.id,
-                    "syncing your Strava history now — give me a sec",
+                    "syncing your Strava history now - give me a sec",
                     update.message.reply_text, user_id=user_id)
                 await sync_strava_history(user_id, get_user(user_id))
                 text = "[SYSTEM: just finished syncing user's Strava history. confirm it's done, mention how many runs came in if you know, keep it short.]"
 
-            # Show typing immediately — before Claude even starts
+            # Show typing immediately - before Claude even starts
             await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
             reply, updated_profile = await get_bot_reply(user_id, text)
 
-            # Before sending — check if another message arrived while Claude was thinking
+            # Before sending - check if another message arrived while Claude was thinking
             if not queue.empty():
                 continue  # skip this reply, process the newer message instead
 
@@ -1077,6 +1097,17 @@ async def process_user_messages(user_id: str, app):
                 await task
             except asyncio.CancelledError:
                 pass
+
+            # Auto-send Strava link if Claude flagged it
+            fresh_profile = get_user(user_id)
+            if fresh_profile and fresh_profile.pop("_send_strava_link", False):
+                save_user(user_id, fresh_profile)
+                auth_url = get_strava_auth_url(user_id)
+                await asyncio.sleep(0.8)
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=f"tap here to connect Strava 👇\n{auth_url}"
+                )
 
             if updated_profile and updated_profile.get("hype_times"):
                 await reschedule_user(user_id, updated_profile, app)
@@ -1134,6 +1165,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 from aiohttp import web
 
 STRAVA_CLIENT_ID = os.environ.get("STRAVA_CLIENT_ID", "")
+
+def get_strava_auth_url(user_id: str) -> str:
+    base_url = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "http://localhost:8080")
+    if not base_url.startswith("http"):
+        base_url = "https://" + base_url
+    return (
+        f"https://www.strava.com/oauth/authorize"
+        f"?client_id={STRAVA_CLIENT_ID}"
+        f"&redirect_uri={base_url}/strava/auth"
+        f"&response_type=code"
+        f"&scope=read_all,activity:read_all,profile:read_all"
+        f"&state={user_id}"
+        f"&approval_prompt=auto"
+    )
 STRAVA_CLIENT_SECRET = os.environ.get("STRAVA_CLIENT_SECRET", "")
 STRAVA_VERIFY_TOKEN = os.environ.get("STRAVA_VERIFY_TOKEN", "gainzbot_strava")
 
@@ -1306,7 +1351,7 @@ async def process_strava_activity(user_id: str, profile: dict, activity_id: int)
         }
         log_session(user_id, session_data)
 
-        # Check for PR — compare against stored PRs
+        # Check for PR - compare against stored PRs
         pr_context = ""
         prs = profile.get("prs", {})
         duration_sec = activity.get("moving_time", 0)
@@ -1321,16 +1366,16 @@ async def process_strava_activity(user_id: str, profile: dict, activity_id: int)
                     time_str = f"{mins}:{secs:02d}"
                     current_pr = prs.get(race_name)
                     if not current_pr:
-                        pr_context = f" this was their first logged {race_name} time: {time_str} — treat it as a PR!"
+                        pr_context = f" this was their first logged {race_name} time: {time_str} - treat it as a PR!"
                     else:
                         # Compare times
                         try:
                             pr_parts = current_pr.split(":")
                             pr_sec = int(pr_parts[0])*60 + int(pr_parts[1])
                             if duration_sec < pr_sec:
-                                pr_context = f" NEW {race_name.upper()} PR: {time_str} (previous: {current_pr}) — go absolutely crazy!"
+                                pr_context = f" NEW {race_name.upper()} PR: {time_str} (previous: {current_pr}) - go absolutely crazy!"
                             elif pr_sec - duration_sec < 30:
-                                pr_context = f" they were {pr_sec - duration_sec} seconds off their {race_name} PR of {current_pr} — so close!"
+                                pr_context = f" they were {pr_sec - duration_sec} seconds off their {race_name} PR of {current_pr} - so close!"
                         except: pass
                     break
 
@@ -1346,7 +1391,7 @@ async def process_strava_activity(user_id: str, profile: dict, activity_id: int)
         trigger = (
             f"[SYSTEM: user just finished a run via Strava. auto-logged. "
             f"activity: {details}.{pr_context} "
-            f"react in your style — comment on the pace/distance flatly, "
+            f"react in your style - comment on the pace/distance flatly, "
             f"compare to their recent runs if relevant. short and punchy.]"
         )
         reply, _ = await get_bot_reply(user_id, trigger)
@@ -1362,7 +1407,7 @@ async def process_strava_activity(user_id: str, profile: dict, activity_id: int)
 
 async def handle_strava_auth(request: web.Request) -> web.Response:
     """
-    OAuth callback — Strava redirects here after user authorises.
+    OAuth callback - Strava redirects here after user authorises.
     URL: /strava/auth?code=XXX&state=TELEGRAM_USER_ID
     """
     import aiohttp
@@ -1396,7 +1441,7 @@ async def handle_strava_auth(request: web.Request) -> web.Response:
 
     logger.info(f"Strava linked for user {telegram_user_id}")
 
-    # Sync shoes + history immediately — await shoes so they're ready before we notify
+    # Sync shoes + history immediately - await shoes so they're ready before we notify
     await sync_strava_shoes(telegram_user_id, profile)
     asyncio.create_task(sync_strava_history(telegram_user_id, profile))
 
@@ -1424,7 +1469,7 @@ async def handle_strava_auth(request: web.Request) -> web.Response:
 #  WEATHER
 # ─────────────────────────────────────────
 async def get_weather_by_city(city: str) -> str:
-    """Fetch weather using city name — no API key needed."""
+    """Fetch weather using city name - no API key needed."""
     import aiohttp
     try:
         async with aiohttp.ClientSession() as session:
@@ -1499,7 +1544,7 @@ async def get_weather(lat: float, lon: float) -> str:
 
 
 # ─────────────────────────────────────────
-#  GHOST CHECKER — runs daily
+#  GHOST CHECKER - runs daily
 # ─────────────────────────────────────────
 async def daily_shoe_sync(context: ContextTypes.DEFAULT_TYPE):
     """Sync shoes for all Strava-connected users every night."""
@@ -1587,7 +1632,7 @@ async def sync_strava_history(user_id: str, profile: dict, pages: int = 3):
 
             date_str = act.get("start_date_local", "")[:10]
             if date_str in existing_dates:
-                logger.info(f"Skipping {date_str} — already exists")
+                logger.info(f"Skipping {date_str} - already exists")
                 continue
 
             distance_km = round(act.get("distance", 0) / 1000, 2)
@@ -1657,7 +1702,7 @@ async def sync_strava_shoes(user_id: str, profile: dict):
     profile = get_user(user_id) or profile
     access_token = await get_valid_strava_token(user_id, profile)
     if not access_token:
-        logger.warning(f"No access token for shoe sync — user {user_id}")
+        logger.warning(f"No access token for shoe sync - user {user_id}")
         return
     try:
         url = "https://www.strava.com/api/v3/athlete"
@@ -1666,7 +1711,7 @@ async def sync_strava_shoes(user_id: str, profile: dict):
             async with session.get(url, headers=headers) as resp:
                 body = await resp.json()
                 if resp.status != 200:
-                    logger.warning(f"Strava athlete fetch failed: {resp.status} — {body}")
+                    logger.warning(f"Strava athlete fetch failed: {resp.status} - {body}")
                     return
                 # Log full athlete response keys for debugging
                 gear_list = body.get("shoes", [])
@@ -1784,12 +1829,12 @@ async def check_health_alerts(user_id: str, profile: dict):
     hrv = health.get("hrv")
     hrv_baseline = health.get("hrv_baseline")
     if hrv and hrv_baseline and hrv < hrv_baseline * 0.75:
-        alerts.append(f"HRV is {hrv}ms vs your baseline of {hrv_baseline}ms — that's a 25%+ drop")
+        alerts.append(f"HRV is {hrv}ms vs your baseline of {hrv_baseline}ms - that's a 25%+ drop")
 
     rhr = health.get("resting_hr")
     rhr_baseline = health.get("resting_hr_baseline")
     if rhr and rhr_baseline and rhr > rhr_baseline * 1.07:
-        alerts.append(f"resting HR is {rhr}bpm vs your baseline of {rhr_baseline}bpm — elevated")
+        alerts.append(f"resting HR is {rhr}bpm vs your baseline of {rhr_baseline}bpm - elevated")
 
     sleep = health.get("sleep_hours")
     if sleep and sleep < 6:
@@ -1803,9 +1848,9 @@ async def check_health_alerts(user_id: str, profile: dict):
 
     alert_text = " + ".join(alerts)
     if is_training_day:
-        trigger = f"[SYSTEM: health alert detected — {alert_text}. today is a planned training day. warn them to take it easy or consider rest. be direct but not dramatic. max 2 bubbles.]"
+        trigger = f"[SYSTEM: health alert detected - {alert_text}. today is a planned training day. warn them to take it easy or consider rest. be direct but not dramatic. max 2 bubbles.]"
     else:
-        trigger = f"[SYSTEM: health alert — {alert_text}. not a training day. mention it casually, suggest good recovery habits.]"
+        trigger = f"[SYSTEM: health alert - {alert_text}. not a training day. mention it casually, suggest good recovery habits.]"
 
     try:
         from telegram import Bot
@@ -1847,7 +1892,7 @@ async def strava_history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
     profile = get_user(user_id) or default_profile()
     profile["conversation"] = []
     save_user(user_id, profile)
-    await update.message.reply_text(f"done — imported {added} runs. ask me about your runs now!")
+    await update.message.reply_text(f"done - imported {added} runs. ask me about your runs now!")
 
 
 async def strava_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1855,7 +1900,7 @@ async def strava_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     profile = get_user(user_id)
     if not profile or not profile.get("strava_access_token"):
-        await update.message.reply_text("you haven't connected Strava yet — use /strava to link it")
+        await update.message.reply_text("you haven't connected Strava yet - use /strava to link it")
         return
     await update.message.reply_text("syncing your Strava data...")
     await sync_strava_shoes(user_id, profile)
@@ -1865,10 +1910,10 @@ async def strava_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines = ["got your shoes:"]
         for s in shoes:
             status = "retired" if s.get("retired") else ("⚠️ getting worn" if s["km"] > 550 else "good")
-            lines.append(f"  {s['name']} — {s['km']}km ({status})")
+            lines.append(f"  {s['name']} - {s['km']}km ({status})")
         await update.message.reply_text("\n".join(lines))
     else:
-        await update.message.reply_text("no shoes found on your Strava — make sure you have shoes added at strava.com/settings/gear")
+        await update.message.reply_text("no shoes found on your Strava - make sure you have shoes added at strava.com/settings/gear")
 
 
 async def strava_connect(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1896,7 +1941,7 @@ async def test_hype_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     profile = get_user(user_id)
     if not profile:
-        await update.message.reply_text("no profile yet — say hi first")
+        await update.message.reply_text("no profile yet - say hi first")
         return
     hour = datetime.now(USER_TZ).hour
     days_left = days_until_race(profile)
