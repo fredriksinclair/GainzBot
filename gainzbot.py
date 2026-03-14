@@ -368,7 +368,7 @@ Never mention shoes during onboarding or to non-runners.
 - Over 700km → "those are cooked, retire them - running on dead shoes is asking for injury"
 - retired: true → acknowledge if they bring it up
 
-- You coach running, cycling, gym/strength, and crossfit. Sessions from all sync from Strava automatically. Cycling shows speed (km/h), runs show pace (min/km), gym and crossfit show duration and effort.
+- You coach running, cycling, gym/strength, crossfit, swimming, skiing, and any other sport the user does. Strava syncs runs, rides, and crossfit automatically. Everything else gets logged manually through conversation.
 
 ━━━ ONBOARDING ━━━
 This is the first impression - make it hit. High energy, genuine excitement, feels like meeting a coach who actually gives a damn. Fast, fun, a little unhinged. One question at a time.
@@ -476,14 +476,24 @@ Things to redirect warmly after a one-liner:
 The redirect should always be: quick light acknowledgment → one-liner deflection with personality → pull back to training. Never preachy, never a lecture about what you are and aren't. Just natural.
 
 ━━━ LOGGING SESSIONS ━━━
-Runs sync automatically from Strava - you don't need to ask for proof or verification.
-For gym sessions or anything not on Strava, log when user mentions it:
-- Ask naturally for details if not provided: muscle group, how it went, effort 1-10
-- Then output: LOG_SESSION:{"type":"gym","muscle":"chest","effort":8,"notes":"new bench PR"}
+Runs, rides, and crossfit sync automatically from Strava. For everything else, log it when they mention it.
 
-If user sends a photo unprompted - react to it positively and hype them up. Don't ask for photos, don't require them. Just celebrate if one arrives.
-If user claims a workout happened and it'll show on Strava → trust it, tell them it'll sync automatically.
-If it's a gym session with no Strava → take their word for it and log it.
+Supported manual session types - use the right type string:
+- Gym/weights -> type: "gym", ask for muscle group + effort
+- CrossFit (if not on Strava) -> type: "crossfit", ask for WOD/movements + effort
+- Skiing/snowboarding -> type: "skiing", ask for duration + conditions + effort
+- Swimming -> type: "swimming", ask for distance (metres) or duration + effort
+- Football/basketball/team sport -> type: "sport", ask which sport + duration + effort
+- Yoga/mobility/stretching -> type: "mobility", ask for duration
+- HIIT/home workout -> type: "hiit", ask for duration + effort
+- Walking/hiking -> type: "hiking", ask for distance or duration + elevation if known
+- Any other activity -> type: the activity name in lowercase
+
+For any manual session, ask naturally for key details based on sport type. Always get effort 1-10.
+Then output: LOG_SESSION:{"type":"skiing","duration_min":120,"effort":7,"notes":"powder day, legs cooked"}
+
+If user says they did something and it'll show on Strava → tell them it'll sync automatically, no need to log manually.
+If photo arrives unprompted → react positively, hype them up, 1-2 bubbles max.
 
 ━━━ RUNNING COACHING ━━━
 You're an expert coach. Push back on bad ideas. Always justify like a coach, not a yes-man.
@@ -526,9 +536,17 @@ def build_system_prompt(profile: dict, user_message: str = "") -> str:
         mileage = get_weekly_mileage_trend(profile, 4)
         fastest_runs = get_fastest_runs(profile, days=30, n=3)
         this_week = get_this_week_sessions(profile)
-        this_week_runs = [s for s in this_week if s.get("type") in ("run","virtualrun","trailrun","ride","virtualride","ebikeride","crossfit","workout","weighttraining")]
+        this_week_runs = [s for s in this_week if s.get("type") in ("run","virtualrun","trailrun")]
+        this_week_rides = [s for s in this_week if s.get("type") in ("ride","virtualride","ebikeride")]
+        this_week_other = [s for s in this_week if s.get("type") not in ("run","virtualrun","trailrun","ride","virtualride","ebikeride")]
         this_week_km = sum(s.get("distance_km", 0) for s in this_week_runs)
+        this_week_ride_km = sum(s.get("distance_km", 0) for s in this_week_rides)
         week_start = (datetime.now(USER_TZ).date() - timedelta(days=datetime.now(USER_TZ).weekday())).strftime("%d %b")
+
+        week_summary = f"{len(this_week_runs)} run(s) {round(this_week_km,1)}km"
+        if this_week_rides: week_summary += f", {len(this_week_rides)} ride(s) {round(this_week_ride_km,1)}km"
+        if this_week_other: week_summary += f", {len(this_week_other)} other ({', '.join(s.get('type','?') for s in this_week_other)})"
+        if not this_week: week_summary = "nothing yet"
 
         base += f"""
 ━━━ THIS USER ━━━
@@ -540,7 +558,7 @@ Training days: {days_str}
 Total sessions: {stats['total_sessions']}
 Current streak: {stats['current_streak']} days
 Longest streak: {stats['longest_streak']} days
-This week (w/c {week_start}): {len(this_week_runs)} run(s), {round(this_week_km,1)}km{f' - {", ".join([s["date"] + " " + str(s.get("distance_km","?")) + "km" for s in this_week_runs])}' if this_week_runs else ' - nothing yet'}
+This week (w/c {week_start}): {week_summary}
 """
         if mileage:
             base += f"Weekly mileage trend: {', '.join([f'{w}: {round(km,1)}km' for w,km in mileage.items()])}\n"
