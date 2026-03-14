@@ -1814,6 +1814,47 @@ async def strava_connect(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg)
 
 
+async def test_hype_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if user_id not in ALLOWED_USERS:
+        return
+    profile = get_user(user_id)
+    if not profile:
+        await update.message.reply_text("no profile yet — say hi first")
+        return
+    hour = datetime.now(USER_TZ).hour
+    days_left = days_until_race(profile)
+    race_context = f" they have a race in {days_left} days." if days_left > 0 else ""
+    city = profile.get("city", "")
+    weather_context = ""
+    if city:
+        weather = await get_weather_by_city(city)
+        if weather:
+            weather_context = f" current weather in {city}: {weather}."
+    if hour < 10:
+        trigger = f"morning of a training day.{race_context}{weather_context} send a short morning message."
+    elif hour < 15:
+        trigger = f"midday on a training day.{race_context}{weather_context} check if they trained yet."
+    else:
+        trigger = f"evening on a training day.{race_context}{weather_context} last chance push."
+    reply, _ = await get_bot_reply(user_id, f"[SYSTEM: {trigger} short and punchy like a real text.]")
+    await send_with_typing(context.bot, update.effective_chat.id, reply, update.message.reply_text, user_id=user_id)
+
+
+async def test_summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if user_id not in ALLOWED_USERS:
+        return
+    profile = get_user(user_id)
+    if not profile:
+        await update.message.reply_text("no profile yet")
+        return
+    days_left = days_until_race(profile)
+    race_context = f" race in {days_left} days." if days_left > 0 else ""
+    reply, _ = await get_bot_reply(user_id, f"[SYSTEM: weekly summary time.{race_context} recap the week, set tone for next week. one message.]")
+    await send_with_typing(context.bot, update.effective_chat.id, reply, update.message.reply_text, user_id=user_id)
+
+
 def main():
     if not ANTHROPIC_API_KEY:
         raise ValueError("Set ANTHROPIC_API_KEY as an environment variable.")
@@ -1828,6 +1869,8 @@ def main():
     tg_app.add_handler(CommandHandler("strava", strava_connect))
     tg_app.add_handler(CommandHandler("syncshoes", strava_sync))
     tg_app.add_handler(CommandHandler("synchistory", strava_history_cmd))
+    tg_app.add_handler(CommandHandler("testhype", test_hype_cmd))
+    tg_app.add_handler(CommandHandler("testsummary", test_summary_cmd))
     tg_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     tg_app.add_handler(MessageHandler(filters.LOCATION, handle_location))
     tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
