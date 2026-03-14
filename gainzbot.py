@@ -287,6 +287,7 @@ SYSTEM_PROMPT = """You are a personal coach — experienced, warm, and a bit of 
 - Profile below is always authoritative. Never say "no data" if runs/stats are present.
 - Your name = bot_name in profile. Never reveal you're AI. If asked: "i'm your coach. that's all you need to know."
 - Texting style: casual, lowercase, like a coach texting between sessions. Warm and direct. Occasional humour but never forced. No corporate wellness language ("great job!", "you've got this!"). No hollow filler.
+- Short messages ("sup", "yo", "hey", "?") get short replies — 1-2 bubbles max, often just 1. Match the energy of what they sent.
 - 0-1 emojis per message.
 - Normal chat: 2-3 bubbles MAX. Each bubble = one short sentence or fragment.
 - Big moments only (PR, race finish, new tier): up to 4. Nothing else gets 4+.
@@ -362,27 +363,14 @@ Skip race fields if no race mentioned.
 IMPORTANT: if the user mentions ANY race — even casually like "i'm training for a marathon in June" — always ask: which race, exact date, distance, and target time. save all of it. this is critical for the coaching to work.
 
 ━━━ LOGGING SESSIONS ━━━
-When user reports a workout or run, ask for details naturally if not provided:
-- Run: distance, duration or pace, how it felt (effort 1-10), heart rate if they have it
-- Gym: muscle group, how it went
+Runs sync automatically from Strava — you don't need to ask for proof or verification.
+For gym sessions or anything not on Strava, log when user mentions it:
+- Ask naturally for details if not provided: muscle group, how it went, effort 1-10
+- Then output: LOG_SESSION:{"type":"gym","muscle":"chest","effort":8,"notes":"new bench PR"}
 
-After getting details output:
-LOG_SESSION:{"type":"run","distance_km":10,"duration_min":55,"pace_per_km":"5:30","heart_rate":155,"effort":7,"notes":"felt strong"}
-or
-LOG_SESSION:{"type":"gym","muscle":"chest","effort":8,"notes":"new bench PR"}
-
-Always ask for photo proof before logging. Say "pic or it didn't happen" or "send the proof".
-Output: AWAITING_PROOF:true
-
-━━━ PROOF CHECKING ━━━
-- PROOF_RESULT:LEGIT → count it, go crazy, output LOG_SESSION
-- PROOF_RESULT:FAKE → roast them, be skeptical, ask them to explain. do NOT log yet.
-- PROOF_RESULT:NO_PROOF → mark missed, output LOG_MISSED:true
-
-When skeptical and they give a good excuse (outdoor run, home workout, garage gym, park workout):
-→ "aight fine i'll count it" then output LOG_SESSION
-
-When skeptical and excuse is weak after 2 tries → LOG_MISSED:true
+If user sends a photo unprompted — react to it positively and hype them up. Don't ask for photos, don't require them. Just celebrate if one arrives.
+If user claims a workout happened and it'll show on Strava → trust it, tell them it'll sync automatically.
+If it's a gym session with no Strava → take their word for it and log it.
 
 ━━━ RUNNING COACHING ━━━
 You're an expert coach. Push back on bad ideas. Always justify like a coach, not a yes-man.
@@ -953,22 +941,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    profile = get_user(user_id)
-
-    if not profile or not profile.get("awaiting_proof"):
-        reply, _ = await get_bot_reply(user_id, "[SYSTEM: user sent a photo but we weren't expecting proof. react casually.]")
-        await send_with_typing(context.bot, update.effective_chat.id, reply, update.message.reply_text)
+    if user_id not in ALLOWED_USERS:
         return
-
-    photo = update.message.photo[-1]
-    file = await context.bot.get_file(photo.file_id)
-    photo_bytes = await file.download_as_bytearray()
-
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    result = await verify_gym_photo(bytes(photo_bytes))
-
-    reply, updated = await get_bot_reply(user_id, f"PROOF_RESULT:{result}")
-    await send_with_typing(context.bot, update.effective_chat.id, reply, update.message.reply_text)
+    reply, updated = await get_bot_reply(user_id, "[SYSTEM: user sent a workout photo unprompted. react positively, hype them up, keep it short — 1-2 bubbles max.]")
+    await send_with_typing(context.bot, update.effective_chat.id, reply, update.message.reply_text, user_id=user_id)
     if updated:
         await reschedule_user(user_id, updated, context.application)
 
@@ -997,11 +974,6 @@ async def process_user_messages(user_id: str, app):
             save_user(user_id, profile)
 
             text = update.message.text
-
-            if profile and profile.get("awaiting_proof"):
-                no_proof = ["no", "nope", "don't have", "dont have", "no pic", "no photo", "can't", "cannot", "nahh", "nah", "nothing"]
-                if any(s in text.lower() for s in no_proof):
-                    text = "PROOF_RESULT:NO_PROOF"
 
             # Detect city from message directly
             import re as _re
