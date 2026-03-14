@@ -346,21 +346,30 @@ If shoe data injected below:
 - You coach running, cycling, and gym/strength. Sessions from all three sync from Strava. Cycling sessions show speed (km/h), runs show pace (min/km). Handle whatever the user brings.
 
 ━━━ ONBOARDING ━━━
-Collect these through natural conversation — react to each answer before asking the next:
-1. Suggest your own name. Pick something cool: Rex, Drago, Zeus, Tank, Ironside, Beast, Apex. Say "i go by [name], but you can call me whatever". Save as bot_name.
-2. Their name
-3. What they're training for — gym goals, running goals, or both. if they mention a race, get the name, date, distance, and target time.
-4. Their weak spot
-5. Training days + hype times
+For brand new users, introduce yourself and onboard through natural conversation — one question at a time, react to each answer warmly before asking the next. Never dump multiple questions at once.
 
-For times accept anything fuzzy: "11ish"→11:00, "morning"→07:30, "after work"→17:30, "evening"→18:00
+Step 1 — Introduce yourself: pick a name (Rex, Drago, Zeus, Tank, Apex — something with character). One line on what you do: "i'm your personal coach — i connect to your Strava, track your training, and check in on you so you actually show up." Ask their name. Save as bot_name.
 
-Once you have everything output on its own line:
-PROFILE_UPDATE:{"bot_name":"...","name":"...","goal":"...","weakspot":"...","workout_days":[0,1,2],"hype_times":["07:30","17:00"],"race":{"name":"...","date":"YYYY-MM-DD","target_time":"H:MM:SS","distance_km":21}}
+Step 2 — What they're training for: gym, running, both? If they mention a race, get name, date, distance, target time naturally across a few messages. Save goal. If it's a race: PROFILE_UPDATE:{"race":{"name":"...","date":"YYYY-MM-DD","target_time":"H:MM:SS","distance_km":21}}
 
+Step 3 — Strava: mention it naturally — "to coach you properly i need to see your actual training — connect Strava and i'll track everything automatically. takes 30 seconds." The /strava link will be sent by the system separately — just tell them to tap it.
+
+Step 4 — Training days + when to message them: "which days do you train? and what time do you want me to check in — morning before, or evening after?" Accept fuzzy times. Save workout_days and hype_times.
+
+Step 5 — Weak spot: ask what they struggle with most (consistency, easy pace, skipping gym, nutrition etc). Save as weakspot.
+
+Once all collected, output: PROFILE_UPDATE:{"bot_name":"...","name":"...","goal":"...","weakspot":"...","workout_days":[0,1,2],"hype_times":["07:30","17:00"]}
 Day numbers: Mon=0 Tue=1 Wed=2 Thu=3 Fri=4 Sat=5 Sun=6
-Skip race fields if no race mentioned.
-IMPORTANT: if the user mentions ANY race — even casually like "i'm training for a marathon in June" — always ask: which race, exact date, distance, and target time. save all of it. this is critical for the coaching to work.
+
+━━━ REVEALING FEATURES NATURALLY ━━━
+Don't explain every feature upfront. Reveal them when relevant:
+- First time they ask about a run → mention Strava sync if not connected yet
+- First time they mention gym → explain you can log it: "just tell me what you did"
+- First time they ask "what can you do" or "how does this work" or "help" → warm 2-3 line answer: explain you track their training via Strava, check in proactively, build plans around their goals — no feature list, just the value
+- First time they ask for a plan → explain you'll build one around their race/goal
+- Weekly summary → happens automatically Sunday evening, no need to explain unless asked
+- If they want to connect Strava → tell them to just say "connect Strava" and you'll send the link
+- If they seem lost → "just talk to me like you'd text a mate — tell me about your training, ask for a plan, whatever you need"
 
 ━━━ LOGGING SESSIONS ━━━
 Runs sync automatically from Strava — you don't need to ask for proof or verification.
@@ -659,9 +668,14 @@ async def get_bot_reply(user_id: str, user_message: str) -> tuple:
     stamped_message = f"[today is {today_str} Stockholm time] {user_message}"
     history.append({"role": "user", "content": stamped_message})
 
-    # Rough pre-check — estimate ~500 tokens per call
-    if not check_rate_limit(user_id, estimate_cost(500, 200)):
-        return "yo easy bro 😅 you've been going hard, give me a few mins to recover", None
+    # Daily message counter — soft limits
+    count = increment_daily_count(user_id)
+    usage_note = get_usage_modifier(user_id)
+
+    # One-time gentle note when crossing soft limit
+    warn = should_warn_usage(user_id)
+    if warn:
+        user_message = user_message + " [SYSTEM: user has been very active today — mention casually once that you're always here but they should get off their phone and train 😄]"
 
     # Smart model routing — Haiku for simple chat, Sonnet for coaching/analysis
     coaching_keywords = [
@@ -674,18 +688,16 @@ async def get_bot_reply(user_id: str, user_message: str) -> tuple:
     is_coaching = any(kw in last_msg for kw in coaching_keywords) or len(last_msg) > 120
     model = "claude-sonnet-4-20250514" if is_coaching else "claude-haiku-4-5-20251001"
 
+    system = build_system_prompt(profile, user_message) + usage_note
+
     response = client.messages.create(
         model=model,
         max_tokens=600,
-        system=build_system_prompt(profile, user_message),
+        system=system,
         messages=history,
     )
 
     raw_reply = response.content[0].text
-    # Track actual cost
-    usage = response.usage
-    actual_cost = estimate_cost(usage.input_tokens, usage.output_tokens)
-    check_rate_limit(user_id, actual_cost - estimate_cost(500, 200))  # adjust for actual
 
     clean_reply, profile_updated = parse_and_apply(user_id, raw_reply)
 
@@ -705,27 +717,51 @@ async def get_bot_reply(user_id: str, user_message: str) -> tuple:
 # Tracks active sending tasks per user so we can cancel them instantly
 user_send_tasks: dict = {}  # {user_id: asyncio.Task}
 
-MAX_BUBBLES_CHAT = 3     # hype/chat mode — enforced by prompt, this is a safety fallback
-MAX_COST_PER_HOUR = 0.50 # USD — rough limit
-COST_PER_1K_INPUT = 0.003
-COST_PER_1K_OUTPUT = 0.015
-user_hourly_cost: dict = {}  # {user_id: [(timestamp, cost), ...]}
+# Daily message tracking — soft limits, never hard stop
+user_daily_messages: dict = {}  # {user_id: {"date": "YYYY-MM-DD", "count": 0, "warned": False}}
+
+SOFT_LIMIT = 30   # normal below this
+SLOW_LIMIT = 50   # add delay + one-time note between 30-50
+# above 50: shorter responses, wrap up naturally
+
+def get_daily_count(user_id: str) -> int:
+    today = datetime.now(USER_TZ).strftime("%Y-%m-%d")
+    entry = user_daily_messages.get(user_id, {})
+    if entry.get("date") != today:
+        user_daily_messages[user_id] = {"date": today, "count": 0, "warned": False}
+        return 0
+    return entry.get("count", 0)
+
+def increment_daily_count(user_id: str) -> int:
+    today = datetime.now(USER_TZ).strftime("%Y-%m-%d")
+    entry = user_daily_messages.get(user_id, {})
+    if entry.get("date") != today:
+        entry = {"date": today, "count": 0, "warned": False}
+    entry["count"] = entry.get("count", 0) + 1
+    user_daily_messages[user_id] = entry
+    return entry["count"]
+
+def should_warn_usage(user_id: str) -> bool:
+    """Returns True once when user crosses SOFT_LIMIT — never again that day."""
+    entry = user_daily_messages.get(user_id, {})
+    count = entry.get("count", 0)
+    if count >= SOFT_LIMIT and not entry.get("warned", False):
+        entry["warned"] = True
+        user_daily_messages[user_id] = entry
+        return True
+    return False
+
+def get_usage_modifier(user_id: str) -> str:
+    """Returns a system note to inject based on usage level."""
+    count = get_daily_count(user_id)
+    if count > SLOW_LIMIT:
+        return " [keep this response short and wrap up naturally — user has been very active today]"
+    return ""
 
 def estimate_cost(input_tokens: int, output_tokens: int) -> float:
-    return (input_tokens / 1000 * COST_PER_1K_INPUT) + (output_tokens / 1000 * COST_PER_1K_OUTPUT)
-
-def check_rate_limit(user_id: str, cost: float) -> bool:
-    """Returns True if under limit, False if over."""
-    now = datetime.now(USER_TZ)
-    hour_ago = now - timedelta(hours=1)
-    history = user_hourly_cost.get(user_id, [])
-    history = [(t, c) for t, c in history if t > hour_ago]
-    total = sum(c for _, c in history)
-    if total + cost > MAX_COST_PER_HOUR:
-        return False
-    history.append((now, cost))
-    user_hourly_cost[user_id] = history
-    return True
+    cost_per_1k_in = 0.003
+    cost_per_1k_out = 0.015
+    return (input_tokens / 1000 * cost_per_1k_in) + (output_tokens / 1000 * cost_per_1k_out)
 
 def split_into_messages(text: str) -> list:
     """
@@ -982,6 +1018,37 @@ async def process_user_messages(user_id: str, app):
                 days_left = days_until_race(profile)
                 race_context = f" race in {days_left} days." if days_left > 0 else ""
                 text = f"[SYSTEM: user asked for their weekly summary.{race_context} structure as 2-3 bubbles (blank line between each): bubble 1 = the numbers (sessions, km, vs last week), bubble 2 = coaching take + what to change, bubble 3 = one question. tight and direct.]"
+
+            # Natural language Strava connect trigger
+            strava_phrases = ["connect strava", "link strava", "sync strava", "strava connect",
+                              "how do i connect", "how do i link strava", "add strava"]
+            if any(p in raw_text for p in strava_phrases):
+                base_url = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "http://localhost:8080")
+                if not base_url.startswith("http"):
+                    base_url = "https://" + base_url
+                auth_url = (
+                    f"https://www.strava.com/oauth/authorize"
+                    f"?client_id={STRAVA_CLIENT_ID}"
+                    f"&redirect_uri={base_url}/strava/auth"
+                    f"&response_type=code"
+                    f"&scope=read_all,activity:read_all,profile:read_all"
+                    f"&state={user_id}"
+                    f"&approval_prompt=auto"
+                )
+                await send_with_typing(context.bot, update.effective_chat.id,
+                    f"tap this to connect Strava and i'll track everything automatically:\n{auth_url}",
+                    update.message.reply_text, user_id=user_id)
+                continue
+
+            # Natural language sync history trigger
+            sync_phrases = ["sync history", "import runs", "sync my runs", "reimport",
+                           "sync strava history", "update my runs"]
+            if any(p in raw_text for p in sync_phrases):
+                await send_with_typing(context.bot, update.effective_chat.id,
+                    "syncing your Strava history now — give me a sec",
+                    update.message.reply_text, user_id=user_id)
+                await sync_strava_history(user_id, get_user(user_id))
+                text = "[SYSTEM: just finished syncing user's Strava history. confirm it's done, mention how many runs came in if you know, keep it short.]"
 
             # Show typing immediately — before Claude even starts
             await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
@@ -1875,11 +1942,8 @@ def main():
 
     tg_app = Application.builder().token(TELEGRAM_TOKEN).build()
     tg_app.add_handler(CommandHandler("start", start))
-    tg_app.add_handler(CommandHandler("strava", strava_connect))
-    tg_app.add_handler(CommandHandler("syncshoes", strava_sync))
-    tg_app.add_handler(CommandHandler("synchistory", strava_history_cmd))
-    tg_app.add_handler(CommandHandler("testhype", test_hype_cmd))
-    tg_app.add_handler(CommandHandler("testsummary", test_summary_cmd))
+    tg_app.add_handler(CommandHandler("testhype", test_hype_cmd))      # internal testing only
+    tg_app.add_handler(CommandHandler("testsummary", test_summary_cmd)) # internal testing only
     tg_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     tg_app.add_handler(MessageHandler(filters.LOCATION, handle_location))
     tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
