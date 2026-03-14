@@ -399,7 +399,7 @@ PROFILE_UPDATE:{"goal":"new goal"}
 If they update race info: PROFILE_UPDATE:{"race":{"name":"...","date":"...","target_time":"...","distance_km":42}}
 
 ━━━ WEEKLY SUMMARY ━━━
-When triggered, send ONE single message — not multiple bubbles. Use internal newlines to structure it. Cover: sessions done, total km, streak, missed days, tone for the week ahead, race countdown if applicable. Keep it tight — 6-8 lines max.
+When triggered, send ONE single message — no blank lines, single newlines only between lines. Cover: sessions this week, km, vs last week, missed days, focus for next week, race countdown if applicable. 8 lines max. End with one question.
 
 ━━━ CURRENT USER INFO ━━━
 Injected below.
@@ -868,8 +868,8 @@ async def send_weekly_summary(context: ContextTypes.DEFAULT_TYPE):
         prompt = (
             f"[SYSTEM: sunday evening weekly summary.{race_note} "
             f"here are their stats: {format_full_stats(profile)}. "
-            f"send ONE single message, not multiple bubbles — use internal newlines to structure it. "
-            f"cover sessions, km, streak, missed days, and what to focus on this week. "
+            f"send ONE single message. use single newlines between lines — NO blank lines or double newlines. "
+            f"cover sessions, km, this week vs last week, and what to focus on next week. "
             f"if race coming, mention whether to increase or hold mileage. keep it tight.]"
         )
         reply, _ = await get_bot_reply(user_id, prompt)
@@ -1030,7 +1030,7 @@ async def process_user_messages(user_id: str, app):
             if any(p in raw_text for p in summary_phrases):
                 days_left = days_until_race(profile)
                 race_context = f" race in {days_left} days." if days_left > 0 else ""
-                text = f"[SYSTEM: user asked for their weekly summary.{race_context} send ONE single message with internal newlines — not multiple bubbles. cover sessions, km, streak, missed days, focus for next week. tight and direct.]"
+                text = f"[SYSTEM: user asked for their weekly summary.{race_context} send ONE single message. use single newlines between lines — NO blank lines or double newlines. cover sessions, km, this week vs last week, focus for next week. tight and direct.]"
 
             # Show typing immediately — before Claude even starts
             await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
@@ -1899,7 +1899,7 @@ async def test_summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     days_left = days_until_race(profile)
     race_context = f" race in {days_left} days." if days_left > 0 else ""
-    reply, _ = await get_bot_reply(user_id, f"[SYSTEM: weekly summary time.{race_context} send ONE single message with internal newlines — not multiple bubbles. cover sessions, km, streak, missed days, focus for next week. tight and direct.]")
+    reply, _ = await get_bot_reply(user_id, f"[SYSTEM: weekly summary time.{race_context} send ONE single message. use single newlines between lines — NO blank lines or double newlines. cover sessions, km, this week vs last week, focus for next week. tight and direct.]")
     await send_with_typing(context.bot, update.effective_chat.id, reply, update.message.reply_text, user_id=user_id)
 
 
