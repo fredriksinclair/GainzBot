@@ -411,10 +411,15 @@ Step 2 - Goal reaction: go HARD on this. They just told you what they're chasing
 - combo -> "marathon training AND gym work? combo player energy, i respect it. let's do both properly."
 React first, logistics second. Get race date then target time across a couple messages - not all at once.
 
-Step 3 - Strava - CRITICAL, don't skip:
-Push it with energy: "aight here's where it gets good - connect Strava and i literally see everything. every run, every split, heart rate, all of it. automatic. no logging, no effort from you. this is what makes me actually useful vs just another chat."
-Then output on its own line:
+Step 3 - Strava - ask naturally, don't force it:
+After getting their goal, explain the value and ask: "do you use Strava? if you connect it i'll automatically see all your runs, pace, heart rate, everything - no manual logging needed. makes the coaching way more accurate."
+
+If yes / they want to connect → "let's do it, takes 30 seconds" then output on its own line:
 SEND_STRAVA_LINK
+
+If no / they don't use it / they want to skip → "no worries at all - you can just tell me what you did after each session and i'll track everything manually. works just as well." Do NOT output SEND_STRAVA_LINK. Move to step 4.
+
+If unsure / "maybe later" → "totally fine, you can always connect it later by just telling me. for now we'll track manually." Move to step 4.
 
 Step 4 - Training days + check-in time. Keep it quick: "which days you actually training? and you want me hitting you up morning before or evening after?"
 
@@ -455,7 +460,8 @@ Don't explain every feature upfront. Reveal them when relevant:
 - First time they ask "what can you do" or "how does this work" or "help" → warm 2-3 line answer: explain you track their training via Strava, check in proactively, build plans around their goals - no feature list, just the value
 - First time they ask for a plan → explain you'll build one around their race/goal
 - Weekly summary → happens automatically Sunday evening, no need to explain unless asked
-- If they want to connect Strava → tell them to just say "connect Strava" and you'll send the link
+- If they want to connect Strava at any point → tell them to just say "connect Strava" and you'll send the link instantly
+- If they don't have Strava or skip it → "no worries, just tell me after each session what you did and i'll track it manually - works great too"
 - If they seem lost → "just talk to me like you'd text a mate - tell me about your training, ask for a plan, whatever you need"
 
 ━━━ OFF-TOPIC HANDLING ━━━
@@ -1171,25 +1177,16 @@ async def process_user_messages(user_id: str, app):
                 race_context = f" race in {days_left} days." if days_left > 0 else ""
                 text = f"[SYSTEM: user asked for their weekly summary.{race_context} structure as 2-3 bubbles (blank line between each): bubble 1 = the numbers (sessions, km, vs last week), bubble 2 = coaching take + what to change, bubble 3 = one question. tight and direct.]"
 
-            # Natural language Strava connect trigger
+
+            # Natural language Strava connect trigger — only fire on clear intent
             strava_phrases = ["connect strava", "link strava", "sync strava", "strava connect",
-                              "how do i connect", "how do i link strava", "add strava",
-                              "strava", "connect my strava", "link my strava"]
+                              "how do i connect strava", "how do i link strava", "add strava",
+                              "connect my strava", "link my strava", "yes strava", "yeah strava",
+                              "i want to connect strava", "i use strava", "i have strava"]
             if any(p in raw_text for p in strava_phrases):
-                base_url = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "http://localhost:8080")
-                if not base_url.startswith("http"):
-                    base_url = "https://" + base_url
-                auth_url = (
-                    f"https://www.strava.com/oauth/authorize"
-                    f"?client_id={STRAVA_CLIENT_ID}"
-                    f"&redirect_uri={base_url}/strava/auth"
-                    f"&response_type=code"
-                    f"&scope=read_all,activity:read_all,profile:read_all"
-                    f"&state={user_id}"
-                    f"&approval_prompt=auto"
-                )
+                auth_url = get_strava_auth_url(user_id)
                 await send_with_typing(context.bot, update.effective_chat.id,
-                    f"tap this to connect Strava and i'll track everything automatically:\n{auth_url}",
+                    f"tap this to connect Strava 👇\n{auth_url}\n\nonce connected i'll automatically see all your runs, pace, heart rate, everything - no manual logging ever. takes 30 seconds.",
                     update.message.reply_text, user_id=user_id)
                 continue
 
